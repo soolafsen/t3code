@@ -312,6 +312,8 @@ This beta is done when:
 - manual testing in the desktop app can trigger and demonstrate the flow
 - the feature still passes `bun fmt`, `bun lint`, and `bun typecheck`
 
+Kickoff prompt for this slice: [docs/t3homer-successor-thread-kickoff-prompt.md](./t3homer-successor-thread-kickoff-prompt.md)
+
 ## After This Beta
 
 The next major follow-up should be checkpoint-aware reset.
