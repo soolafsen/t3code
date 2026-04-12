@@ -18,6 +18,7 @@ import {
   type OrchestrationThreadActivity,
   ModelSelection,
   ProjectId,
+  T3HomerManagedWorkState,
   ThreadId,
 } from "@t3tools/contracts";
 import { Effect, Layer, Option, Schema, Struct } from "effect";
@@ -65,6 +66,7 @@ const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
     homerTaskAnchor: Schema.NullOr(Schema.fromJsonString(ProjectionThread.fields.homerTaskAnchor)),
+    homerManagedWorkState: Schema.NullOr(Schema.fromJsonString(T3HomerManagedWorkState)),
   }),
 );
 const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
@@ -205,6 +207,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           homer_successor_thread_id AS "homerSuccessorThreadId",
           homer_transition_kind AS "homerTransitionKind",
           homer_task_anchor_json AS "homerTaskAnchor",
+          homer_managed_work_state_json AS "homerManagedWorkState",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -699,6 +702,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 homerSuccessorThreadId: row.homerSuccessorThreadId,
                 homerTransitionKind: row.homerTransitionKind,
                 homerTaskAnchor: row.homerTaskAnchor,
+                homerManagedWorkState: row.homerManagedWorkState,
                 latestTurn: latestTurnByThread.get(row.threadId) ?? null,
                 createdAt: row.createdAt,
                 updatedAt: row.updatedAt,

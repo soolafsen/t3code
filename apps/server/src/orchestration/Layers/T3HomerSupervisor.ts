@@ -11,6 +11,7 @@ import {
   T3_HOMER_ACTIVITY_KINDS,
   type T3HomerExecutionPolicy,
   type T3HomerHandoffPayload,
+  type T3HomerManagedWorkState,
   type T3HomerTaskAnchor,
   ThreadId,
   TurnId,
@@ -108,6 +109,13 @@ function isStatusCheckMessage(text: string): boolean {
   );
 }
 
+function isHomerInjectedUserMessage(text: string): boolean {
+  return (
+    text.startsWith("T3 Homer successor-thread handoff.") ||
+    text.startsWith("T3 Homer managed-work continuation.")
+  );
+}
+
 function extractSectionEntries(text: string, labels: ReadonlyArray<string>): string[] {
   const labelSet = new Set(labels.map((label) => label.toLowerCase()));
   const lines = text.split(/\r?\n/);
@@ -180,6 +188,12 @@ function getUserMessages(thread: OrchestrationThread): OrchestrationMessage[] {
 
 function getAuthoritativeUserMessages(thread: OrchestrationThread): OrchestrationMessage[] {
   const userMessages = getUserMessages(thread);
+  const nonSyntheticMessages = userMessages.filter(
+    (message) => !isStatusCheckMessage(message.text) && !isHomerInjectedUserMessage(message.text),
+  );
+  if (nonSyntheticMessages.length > 0) {
+    return nonSyntheticMessages;
+  }
   const nonStatusMessages = userMessages.filter((message) => !isStatusCheckMessage(message.text));
   return nonStatusMessages.length > 0 ? nonStatusMessages : userMessages;
 }
@@ -248,6 +262,47 @@ function buildSuccessorHandoffPrompt(input: {
     `Checkpoint ref: ${input.payload.checkpointRef ?? "none"}`,
     "",
     "Continue the authoritative assignment above. Use this handoff and the repository state as the authority for what to do next.",
+  ];
+  return sections.join("\n");
+}
+
+function buildManagedContinuationPrompt(input: {
+  readonly thread: OrchestrationThread;
+  readonly taskAnchor: T3HomerTaskAnchor;
+  readonly executionPolicy: T3HomerExecutionPolicy;
+  readonly statusCheckText: string;
+}) {
+  const sections = [
+    "T3 Homer managed-work continuation.",
+    "",
+    `Thread: ${input.thread.id}`,
+    `Execution policy: ${input.executionPolicy}`,
+    `Status check received: ${truncateValue(input.statusCheckText, 120)}`,
+    "",
+    "Authority rules:",
+    "- This status check does not change the assignment.",
+    "- Continue the existing authoritative task until the user gives a real new instruction.",
+    "",
+    `Objective: ${input.taskAnchor.objective}`,
+    "",
+    "Source docs:",
+    ...(input.taskAnchor.sourceDocumentPaths.length > 0
+      ? input.taskAnchor.sourceDocumentPaths.map((entry) => `- ${entry}`)
+      : ["- None recorded."]),
+    "",
+    "Constraints:",
+    ...(input.taskAnchor.constraints.length > 0
+      ? input.taskAnchor.constraints.map((entry) => `- ${entry}`)
+      : ["- None recorded."]),
+    "",
+    "Non-goals:",
+    ...(input.taskAnchor.nonGoals.length > 0
+      ? input.taskAnchor.nonGoals.map((entry) => `- ${entry}`)
+      : ["- None recorded."]),
+    "",
+    `Branch expectation: ${input.taskAnchor.branchExpectation ?? "current branch context"}`,
+    "",
+    "Continue work from the current repository and thread state. Do not re-ask for the original assignment.",
   ];
   return sections.join("\n");
 }
@@ -358,6 +413,18 @@ const make = Effect.gen(function* () {
       threadId: input.threadId,
       session: input.session,
       createdAt: input.createdAt,
+    });
+  });
+
+  const setManagedWorkState = Effect.fn("setManagedWorkState")(function* (input: {
+    readonly threadId: ThreadId;
+    readonly state: T3HomerManagedWorkState | null;
+  }) {
+    yield* orchestrationEngine.dispatch({
+      type: "thread.meta.update",
+      commandId: serverCommandId("managed-work-state"),
+      threadId: input.threadId,
+      homerManagedWorkState: input.state,
     });
   });
 
@@ -526,6 +593,22 @@ const make = Effect.gen(function* () {
     });
   });
 
+  const markManualAttention = Effect.fn("markManualAttention")(function* (input: {
+    readonly threadId: ThreadId;
+    readonly createdAt: string;
+    readonly executionPolicy: T3HomerExecutionPolicy;
+  }) {
+    yield* setManagedWorkState({
+      threadId: input.threadId,
+      state: {
+        status: "manual_attention",
+        executionPolicy: input.executionPolicy,
+        activatedAt: input.createdAt,
+        updatedAt: input.createdAt,
+      },
+    });
+  });
+
   const stopThreadAuthority = Effect.fn("stopThreadAuthority")(function* (input: {
     readonly thread: OrchestrationThread;
     readonly reason: string;
@@ -632,6 +715,11 @@ const make = Effect.gen(function* () {
       interventionCount: nextInterventionCount,
     });
     if (!stopped) {
+      yield* markManualAttention({
+        threadId: input.threadId,
+        createdAt: input.createdAt,
+        executionPolicy: "restart_in_place",
+      });
       state.interventionInProgress = false;
       return;
     }
@@ -671,6 +759,11 @@ const make = Effect.gen(function* () {
         turnId: input.turnId,
         interventionCount: nextInterventionCount,
       });
+      yield* markManualAttention({
+        threadId: input.threadId,
+        createdAt: input.createdAt,
+        executionPolicy: "restart_in_place",
+      });
       state.interventionInProgress = false;
       state.interventionCount = nextInterventionCount;
       state.lastIntervenedTurnId = input.turnId;
@@ -681,6 +774,15 @@ const make = Effect.gen(function* () {
       threadId: input.threadId,
       session: mapProviderSession(startExit.value),
       createdAt: input.createdAt,
+    });
+    yield* setManagedWorkState({
+      threadId: input.threadId,
+      state: {
+        status: "active",
+        executionPolicy: "restart_in_place",
+        activatedAt: input.createdAt,
+        updatedAt: input.createdAt,
+      },
     });
 
     yield* appendActivity({
@@ -769,6 +871,7 @@ const make = Effect.gen(function* () {
       homerSuccessorThreadId: null,
       homerTransitionKind: "spawn_successor_thread",
       homerTaskAnchor: taskAnchor,
+      homerManagedWorkState: null,
       createdAt: input.createdAt,
     });
 
@@ -831,9 +934,18 @@ const make = Effect.gen(function* () {
       interventionCount: nextInterventionCount,
     });
     if (!stopped) {
+      yield* markManualAttention({
+        threadId: thread.id,
+        createdAt: input.createdAt,
+        executionPolicy: "spawn_successor_thread",
+      });
       state.interventionInProgress = false;
       return;
     }
+    yield* setManagedWorkState({
+      threadId: thread.id,
+      state: null,
+    });
 
     const successorThread = {
       ...thread,
@@ -843,6 +955,7 @@ const make = Effect.gen(function* () {
       homerSuccessorThreadId: null,
       homerTransitionKind: "spawn_successor_thread" as const,
       homerTaskAnchor: taskAnchor,
+      homerManagedWorkState: null,
       session: null,
     } satisfies OrchestrationThread;
     const successorCwd = resolveThreadWorkspaceCwd({
@@ -866,6 +979,11 @@ const make = Effect.gen(function* () {
         turnId: null,
         interventionCount: nextInterventionCount,
       });
+      yield* markManualAttention({
+        threadId: successorThreadId,
+        createdAt: input.createdAt,
+        executionPolicy: "spawn_successor_thread",
+      });
       state.interventionInProgress = false;
       state.interventionCount = nextInterventionCount;
       state.lastIntervenedTurnId = input.turnId;
@@ -876,6 +994,15 @@ const make = Effect.gen(function* () {
       threadId: successorThreadId,
       session: mapProviderSession(startExit.value),
       createdAt: input.createdAt,
+    });
+    yield* setManagedWorkState({
+      threadId: successorThreadId,
+      state: {
+        status: "active",
+        executionPolicy: "spawn_successor_thread",
+        activatedAt: input.createdAt,
+        updatedAt: input.createdAt,
+      },
     });
 
     yield* appendActivity({
@@ -979,6 +1106,115 @@ const make = Effect.gen(function* () {
       });
 
       return "triggered";
+    },
+  );
+
+  const handleUserTurn: T3HomerSupervisorShape["handleUserTurn"] = Effect.fn("handleUserTurn")(
+    function* (input) {
+      if (!(yield* isEnabled)) {
+        return "pass_through";
+      }
+
+      const resolved = yield* resolveThread(input.threadId);
+      const thread = resolved.thread;
+      if (!thread || thread.homerManagedWorkState === null) {
+        return "pass_through";
+      }
+
+      if (!isStatusCheckMessage(input.text)) {
+        yield* setManagedWorkState({
+          threadId: input.threadId,
+          state: null,
+        });
+        return "pass_through";
+      }
+
+      const managedState = thread.homerManagedWorkState;
+      yield* appendActivity({
+        threadId: input.threadId,
+        kind: T3_HOMER_ACTIVITY_KINDS.statusCheckHandled,
+        summary: "T3 Homer handled a status-check turn deterministically",
+        createdAt: input.createdAt,
+        tone: "info",
+        payload: {
+          statusCheckText: truncateValue(input.text, 120),
+          managedStatus: managedState.status,
+          executionPolicy: managedState.executionPolicy,
+        },
+      });
+
+      if (managedState.status === "manual_attention") {
+        yield* appendSystemMessage({
+          threadId: input.threadId,
+          text: "T3 Homer still requires manual attention before managed work can continue.",
+          createdAt: input.createdAt,
+        });
+        yield* setManagedWorkState({
+          threadId: input.threadId,
+          state: {
+            ...managedState,
+            updatedAt: input.createdAt,
+          },
+        });
+        return "handled";
+      }
+
+      if (thread.session?.status === "running" || thread.session?.activeTurnId !== null) {
+        yield* appendSystemMessage({
+          threadId: input.threadId,
+          text: "T3 Homer is still managing this task and the current turn is still active.",
+          createdAt: input.createdAt,
+        });
+        yield* setManagedWorkState({
+          threadId: input.threadId,
+          state: {
+            ...managedState,
+            updatedAt: input.createdAt,
+          },
+        });
+        return "handled";
+      }
+
+      const taskAnchor =
+        thread.homerTaskAnchor ??
+        (yield* resolveTaskAnchor({
+          thread,
+          createdAt: input.createdAt,
+        }));
+
+      yield* appendSystemMessage({
+        threadId: input.threadId,
+        text: "T3 Homer is still managing this task. Resuming managed work now.",
+        createdAt: input.createdAt,
+      });
+      yield* setManagedWorkState({
+        threadId: input.threadId,
+        state: {
+          ...managedState,
+          updatedAt: input.createdAt,
+        },
+      });
+      yield* orchestrationEngine.dispatch({
+        type: "thread.turn.start",
+        commandId: serverCommandId("managed-work-resume"),
+        threadId: input.threadId,
+        message: {
+          messageId: MessageId.make(`t3homer:managed-resume:${crypto.randomUUID()}`),
+          role: "user",
+          text: buildManagedContinuationPrompt({
+            thread,
+            taskAnchor,
+            executionPolicy: managedState.executionPolicy,
+            statusCheckText: input.text,
+          }),
+          attachments: [],
+        },
+        runtimeMode: thread.runtimeMode,
+        interactionMode: thread.interactionMode,
+        createdAt: input.createdAt,
+      });
+
+      return "handled";
     },
   );
 
@@ -1197,6 +1433,7 @@ const make = Effect.gen(function* () {
   return {
     start,
     drain: worker.drain,
+    handleUserTurn,
     forceHandoff,
   } satisfies T3HomerSupervisorShape;
 });

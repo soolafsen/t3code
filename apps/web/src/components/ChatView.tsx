@@ -3216,6 +3216,7 @@ export default function ChatView(props: ChatViewProps) {
         homerSuccessorThreadId: null,
         homerTransitionKind: null,
         homerTaskAnchor: null,
+        homerManagedWorkState: null,
         createdAt,
       })
       .then(() => {

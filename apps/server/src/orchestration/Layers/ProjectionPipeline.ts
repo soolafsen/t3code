@@ -450,6 +450,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             homerSuccessorThreadId: event.payload.homerSuccessorThreadId,
             homerTransitionKind: event.payload.homerTransitionKind,
             homerTaskAnchor: event.payload.homerTaskAnchor,
+            homerManagedWorkState: event.payload.homerManagedWorkState,
             latestTurnId: null,
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
@@ -516,6 +517,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               : {}),
             ...(event.payload.homerTaskAnchor !== undefined
               ? { homerTaskAnchor: event.payload.homerTaskAnchor }
+              : {}),
+            ...(event.payload.homerManagedWorkState !== undefined
+              ? { homerManagedWorkState: event.payload.homerManagedWorkState }
               : {}),
             updatedAt: event.payload.updatedAt,
           });

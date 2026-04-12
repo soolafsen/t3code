@@ -263,6 +263,7 @@ export function projectEvent(
             homerSuccessorThreadId: payload.homerSuccessorThreadId,
             homerTransitionKind: payload.homerTransitionKind,
             homerTaskAnchor: payload.homerTaskAnchor,
+            homerManagedWorkState: payload.homerManagedWorkState,
             latestTurn: null,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
@@ -340,6 +341,9 @@ export function projectEvent(
               : {}),
             ...(payload.homerTaskAnchor !== undefined
               ? { homerTaskAnchor: payload.homerTaskAnchor }
+              : {}),
+            ...(payload.homerManagedWorkState !== undefined
+              ? { homerManagedWorkState: payload.homerManagedWorkState }
               : {}),
             updatedAt: payload.updatedAt,
           }),

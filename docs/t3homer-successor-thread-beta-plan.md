@@ -128,6 +128,10 @@ Likely additions:
   - `homerSourceThreadId`
   - `homerSuccessorThreadId`
   - `homerTransitionKind`
+- small explicit Homer-managed authority state such as:
+  - `homerManagedWorkState`
+  - status values for `active` vs `manual_attention`
+  - timestamps for activation and latest deterministic resume
 
 If the current read model cannot express thread-to-thread Homer linkage cleanly, add a small projected field rather than encoding everything in activity text.
 
@@ -146,6 +150,18 @@ That flow should:
 7. append activities to both threads
 
 Important: thread creation and session start must be treated as one orchestrated transition, not a loose pile of side effects.
+
+The supervisor also needs a deterministic post-promotion continuity path.
+
+If the promoted thread later receives a short status/progress check while Homer still owns the work:
+
+- do not forward that raw text as a new freeform assignment
+- classify it server-side as a status check
+- append visible Homer activity
+- synthesize a compact deterministic continuation prompt from projected state
+- resume work on the authority thread
+
+This keeps successor-thread continuation deterministic even after later user pings like "Are you still working?"
 
 ### Orchestration events
 
@@ -203,12 +219,14 @@ Deliverables:
 
 - `spawnSuccessorThread` implementation in `T3HomerSupervisor`
 - deterministic policy for choosing in-place restart vs successor thread
+- deterministic managed-work continuation handling for status-check turns
 - tests for session handoff across threads
 
 Acceptance:
 
 - supervisor can create a successor thread, stop the old session, and start the new one
 - old/new thread activities are appended correctly
+- successor-thread status checks do not collapse into fresh idle chat behavior
 
 ### Slice 3. Manual trigger and validation path
 

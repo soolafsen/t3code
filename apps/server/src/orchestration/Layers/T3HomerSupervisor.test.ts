@@ -219,6 +219,7 @@ describe("T3HomerSupervisor", () => {
         homerSuccessorThreadId: null,
         homerTransitionKind: null,
         homerTaskAnchor: null,
+        homerManagedWorkState: null,
         createdAt,
       }),
     );
@@ -515,6 +516,7 @@ describe("T3HomerSupervisor", () => {
 
     expect(sourceThread.homerTransitionKind).toBe("spawn_successor_thread");
     expect(sourceThread.homerSuccessorThreadId).not.toBeNull();
+    expect(sourceThread.homerManagedWorkState).toBeNull();
     expect(sourceThread.homerTaskAnchor?.objective).toContain(
       "implement successor-thread beta for Homer",
     );
@@ -531,6 +533,12 @@ describe("T3HomerSupervisor", () => {
     expect(successorThread?.homerSourceThreadId).toBe(asThreadId("thread-1"));
     expect(successorThread?.homerTransitionKind).toBe("spawn_successor_thread");
     expect(successorThread?.homerTaskAnchor).toEqual(sourceThread.homerTaskAnchor);
+    expect(successorThread?.homerManagedWorkState).toEqual({
+      status: "active",
+      executionPolicy: "spawn_successor_thread",
+      activatedAt: "2026-04-12T22:05:00.000Z",
+      updatedAt: "2026-04-12T22:05:00.000Z",
+    });
     expect(successorThread?.title).toBe("Homer Thread (Homer 2)");
     expect(successorThread?.messages.some((message) => message.role === "system")).toBe(true);
     expect(successorHandoffMessage).not.toBeNull();
@@ -547,6 +555,124 @@ describe("T3HomerSupervisor", () => {
     expect(harness.provider.counts().stoppedCount).toBe(2);
     expect(harness.provider.counts().startedCount).toBe(2);
     expect(harness.provider.counts().startedSessions.at(-1)?.threadId).toBe(successorThread?.id);
+  });
+
+  it("resumes managed work deterministically when a successor thread receives a status check", async () => {
+    const harness = await createHarness();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-homer-successor-assignment"),
+        threadId: asThreadId("thread-1"),
+        message: {
+          messageId: asMessageId("msg-homer-successor-assignment"),
+          role: "user",
+          text: [
+            "Your task is implement successor-thread beta for Homer.",
+            "",
+            "Read docs/t3homer-successor-thread-beta-plan.md and continue the same assignment.",
+            "",
+            "Constraints:",
+            "- keep Homer deterministic and server-side",
+            "",
+            "Non-goals:",
+            "- no model-written handoffs",
+          ].join("\n"),
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: "2026-04-12T22:20:00.000Z",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-12T22:21:00.000Z",
+        reason: "Manual successor-thread validation.",
+        executionPolicy: "spawn_successor_thread",
+      }),
+    );
+
+    const sourceThread = await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.homerSuccessorThreadId !== null && candidate.session?.status === "stopped",
+    );
+    const successorThreadId = sourceThread.homerSuccessorThreadId!;
+
+    const successorReadyDeadline = Date.now() + 2_000;
+    let successorReadyThread: Awaited<ReturnType<typeof readThreadById>> = null;
+    while (Date.now() < successorReadyDeadline) {
+      successorReadyThread = await readThreadById(harness.engine, successorThreadId);
+      if (
+        successorReadyThread?.session?.status === "ready" &&
+        successorReadyThread.homerManagedWorkState?.status === "active"
+      ) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(successorReadyThread?.session?.status).toBe("ready");
+    expect(successorReadyThread?.homerManagedWorkState?.status).toBe("active");
+
+    const result = await Effect.runPromise(
+      harness.supervisor.handleUserTurn({
+        threadId: successorThreadId,
+        text: "Are you still working on the tasks?",
+        createdAt: "2026-04-12T22:22:00.000Z",
+      }),
+    );
+
+    expect(result).toBe("handled");
+
+    const continuationDeadline = Date.now() + 2_000;
+    let successorThread: Awaited<ReturnType<typeof readThreadById>> = null;
+    while (Date.now() < continuationDeadline) {
+      successorThread = await readThreadById(harness.engine, successorThreadId);
+      if (
+        successorThread?.activities.some(
+          (activity) => activity.kind === T3_HOMER_ACTIVITY_KINDS.statusCheckHandled,
+        ) &&
+        successorThread.messages.some(
+          (message) =>
+            message.role === "user" && message.text.includes("T3 Homer managed-work continuation."),
+        ) &&
+        successorThread.messages.some(
+          (message) =>
+            message.role === "system" && message.text.includes("Resuming managed work now."),
+        )
+      ) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(successorThread).not.toBeNull();
+
+    const continuationPrompt =
+      successorThread!.messages.find(
+        (message) =>
+          message.role === "user" && message.text.includes("T3 Homer managed-work continuation."),
+      )?.text ?? null;
+
+    expect(successorThread!.homerManagedWorkState).toEqual({
+      status: "active",
+      executionPolicy: "spawn_successor_thread",
+      activatedAt: "2026-04-12T22:21:00.000Z",
+      updatedAt: "2026-04-12T22:22:00.000Z",
+    });
+    expect(
+      successorThread!.messages.some(
+        (message) =>
+          message.role === "user" && message.text === "Are you still working on the tasks?",
+      ),
+    ).toBe(false);
+    expect(continuationPrompt).toContain("This status check does not change the assignment.");
+    expect(continuationPrompt).toContain("docs/t3homer-successor-thread-beta-plan.md");
+    expect(continuationPrompt).toContain("keep Homer deterministic and server-side");
+    expect(continuationPrompt).toContain("no model-written handoffs");
   });
 
   it("supports an explicit successor-thread manual trigger for dev validation", async () => {

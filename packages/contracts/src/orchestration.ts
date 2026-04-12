@@ -3,6 +3,7 @@ import { ClaudeModelOptions, CodexModelOptions } from "./model";
 import { RepositoryIdentity } from "./environment";
 import {
   T3HomerExecutionPolicy,
+  T3HomerManagedWorkState,
   T3HomerRecoveryMode,
   T3HomerTaskAnchor,
   T3HomerTransitionKind,
@@ -303,6 +304,9 @@ export const OrchestrationThread = Schema.Struct({
   homerTaskAnchor: Schema.NullOr(T3HomerTaskAnchor).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  homerManagedWorkState: Schema.NullOr(T3HomerManagedWorkState).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -377,6 +381,9 @@ const ThreadCreateCommand = Schema.Struct({
   homerTaskAnchor: Schema.NullOr(T3HomerTaskAnchor).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  homerManagedWorkState: Schema.NullOr(T3HomerManagedWorkState).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   createdAt: IsoDateTime,
 });
 
@@ -410,6 +417,7 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   homerSuccessorThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   homerTransitionKind: Schema.optional(Schema.NullOr(T3HomerTransitionKind)),
   homerTaskAnchor: Schema.optional(Schema.NullOr(T3HomerTaskAnchor)),
+  homerManagedWorkState: Schema.optional(Schema.NullOr(T3HomerManagedWorkState)),
 });
 
 const ThreadRuntimeModeSetCommand = Schema.Struct({
@@ -757,6 +765,9 @@ export const ThreadCreatedPayload = Schema.Struct({
   homerTaskAnchor: Schema.NullOr(T3HomerTaskAnchor).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  homerManagedWorkState: Schema.NullOr(T3HomerManagedWorkState).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -787,6 +798,7 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   homerSuccessorThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   homerTransitionKind: Schema.optional(Schema.NullOr(T3HomerTransitionKind)),
   homerTaskAnchor: Schema.optional(Schema.NullOr(T3HomerTaskAnchor)),
+  homerManagedWorkState: Schema.optional(Schema.NullOr(T3HomerManagedWorkState)),
   updatedAt: IsoDateTime,
 });
 

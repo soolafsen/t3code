@@ -274,6 +274,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           homerSuccessorThreadId: null,
           homerTransitionKind: null,
           homerTaskAnchor: null,
+          homerManagedWorkState: null,
           latestTurn: {
             turnId: asTurnId("turn-1"),
             state: "completed",

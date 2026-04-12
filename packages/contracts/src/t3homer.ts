@@ -12,6 +12,7 @@ export const T3_HOMER_ACTIVITY_KINDS = {
   supervising: "t3homer.supervising",
   prepareHandoff: "t3homer.prepare-handover",
   handoffPrepared: "t3homer.handoff-prepared",
+  statusCheckHandled: "t3homer.status-check.handled",
   checkpointResetRequested: "t3homer.checkpoint-reset.requested",
   checkpointResetCompleted: "t3homer.checkpoint-reset.completed",
   successorThreadSpawned: "t3homer.successor-thread.spawned",
@@ -55,6 +56,17 @@ export const T3HomerTaskAnchor = Schema.Struct({
 });
 export type T3HomerTaskAnchor = typeof T3HomerTaskAnchor.Type;
 
+export const T3HomerManagedWorkStatus = Schema.Literals(["active", "manual_attention"]);
+export type T3HomerManagedWorkStatus = typeof T3HomerManagedWorkStatus.Type;
+
+export const T3HomerManagedWorkState = Schema.Struct({
+  status: T3HomerManagedWorkStatus,
+  executionPolicy: T3HomerExecutionPolicy,
+  activatedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+export type T3HomerManagedWorkState = typeof T3HomerManagedWorkState.Type;
+
 export const T3HomerHandoffPayload = Schema.Struct({
   sourceThreadId: ThreadId,
   goal: Schema.String,
@@ -73,7 +85,7 @@ export const T3HomerCheckpointResetPayload = Schema.Struct({
   targetCheckpointTurnCount: NonNegativeInt,
   targetCheckpointRef: CheckpointRef,
   latestCheckpointTurnCount: NonNegativeInt,
-  latestCheckpointStatus: Schema.Literals(["missing", "error"]),
+  latestCheckpointStatus: Schema.Literals(["ready", "missing", "error"]),
   resetReason: T3HomerCheckpointResetReason,
   reason: TrimmedNonEmptyString,
   executionPolicy: T3HomerExecutionPolicy,

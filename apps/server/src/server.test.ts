@@ -117,6 +117,7 @@ const HOMER_THREAD_LINKAGE = {
   homerSuccessorThreadId: null,
   homerTransitionKind: null,
   homerTaskAnchor: null,
+  homerManagedWorkState: null,
 } as const;
 const testEnvironmentDescriptor = {
   environmentId: EnvironmentId.make("environment-test"),
@@ -448,6 +449,7 @@ const buildAppUnderTest = (options?: {
         Layer.mock(T3HomerSupervisor)({
           start: () => Effect.void,
           drain: Effect.void,
+          handleUserTurn: () => Effect.succeed("pass_through" as const),
           forceHandoff: () => Effect.succeed("triggered" as const),
           ...options?.layers?.t3HomerSupervisor,
         }),
@@ -2865,6 +2867,71 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           executionPolicy: "spawn_successor_thread",
         },
       ]);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("intercepts managed status-check turns through Homer before normal dispatch", () =>
+    Effect.gen(function* () {
+      const handleUserTurnCalls: Array<Parameters<T3HomerSupervisorShape["handleUserTurn"]>[0]> =
+        [];
+      let dispatchCalled = false;
+
+      yield* buildAppUnderTest({
+        layers: {
+          projectionSnapshotQuery: {
+            getSnapshot: () =>
+              Effect.succeed({
+                ...makeDefaultOrchestrationReadModel(),
+                snapshotSequence: 77,
+              }),
+          },
+          orchestrationEngine: {
+            dispatch: () =>
+              Effect.sync(() => {
+                dispatchCalled = true;
+                return { sequence: 123 };
+              }),
+          },
+          t3HomerSupervisor: {
+            handleUserTurn: (input) =>
+              Effect.sync(() => {
+                handleUserTurnCalls.push(input);
+                return "handled" as const;
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const createdAt = new Date().toISOString();
+      const dispatchResult = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
+            type: "thread.turn.start",
+            commandId: CommandId.make("cmd-managed-status-check"),
+            threadId: ThreadId.make("thread-1"),
+            message: {
+              messageId: MessageId.make("msg-managed-status-check"),
+              role: "user",
+              text: "Are you still working?",
+              attachments: [],
+            },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            createdAt,
+          }),
+        ),
+      );
+
+      assert.equal(dispatchResult.sequence, 77);
+      assert.deepEqual(handleUserTurnCalls, [
+        {
+          threadId: ThreadId.make("thread-1"),
+          text: "Are you still working?",
+          createdAt,
+        },
+      ]);
+      assert.equal(dispatchCalled, false);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

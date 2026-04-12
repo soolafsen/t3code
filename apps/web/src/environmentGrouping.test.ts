@@ -34,6 +34,7 @@ const HOMER_THREAD_LINKAGE = {
   homerSuccessorThreadId: null,
   homerTransitionKind: null,
   homerTaskAnchor: null,
+  homerManagedWorkState: null,
 } as const;
 
 const SHARED_REPO_CANONICAL_KEY = "github.com/example/shared-repo";

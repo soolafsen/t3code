@@ -356,6 +356,7 @@ export const makeOrchestrationIntegrationHarness = (
         Layer.succeed(T3HomerSupervisor, {
           start: () => Effect.void,
           drain: Effect.void,
+          handleUserTurn: () => Effect.succeed("pass_through" as const),
           forceHandoff: () => Effect.succeed("triggered" as const),
         }),
       ),

@@ -15,9 +15,19 @@ export type T3HomerForceHandoffResult =
   | "thread_not_found"
   | "checkpoint_reset_unavailable";
 
+export type T3HomerHandleUserTurnResult = "pass_through" | "handled";
+
 export interface T3HomerSupervisorShape {
   readonly start: () => Effect.Effect<void, never, Scope.Scope>;
   readonly drain: Effect.Effect<void>;
+  readonly handleUserTurn: (input: {
+    readonly threadId: ThreadId;
+    readonly text: string;
+    readonly createdAt: IsoDateTime;
+  }) => Effect.Effect<
+    T3HomerHandleUserTurnResult,
+    ServerSettingsError | OrchestrationDispatchError
+  >;
   readonly forceHandoff: (input: {
     readonly threadId: ThreadId;
     readonly createdAt: IsoDateTime;

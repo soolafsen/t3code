@@ -167,6 +167,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           homerSuccessorThreadId: command.homerSuccessorThreadId,
           homerTransitionKind: command.homerTransitionKind,
           homerTaskAnchor: command.homerTaskAnchor,
+          homerManagedWorkState: command.homerManagedWorkState,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
@@ -274,6 +275,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           ...(command.homerTaskAnchor !== undefined
             ? { homerTaskAnchor: command.homerTaskAnchor }
+            : {}),
+          ...(command.homerManagedWorkState !== undefined
+            ? { homerManagedWorkState: command.homerManagedWorkState }
             : {}),
           updatedAt: occurredAt,
         },

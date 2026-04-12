@@ -15,6 +15,7 @@ import type {
   CheckpointRef,
   ProviderInteractionMode,
   RuntimeMode,
+  T3HomerManagedWorkState,
   T3HomerTaskAnchor,
   T3HomerTransitionKind,
 } from "@t3tools/contracts";
@@ -118,6 +119,7 @@ export interface Thread {
   homerSuccessorThreadId: ThreadId | null;
   homerTransitionKind: T3HomerTransitionKind | null;
   homerTaskAnchor: T3HomerTaskAnchor | null;
+  homerManagedWorkState: T3HomerManagedWorkState | null;
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
 }
@@ -141,6 +143,7 @@ export interface ThreadShell {
   homerSuccessorThreadId: ThreadId | null;
   homerTransitionKind: T3HomerTransitionKind | null;
   homerTaskAnchor: T3HomerTaskAnchor | null;
+  homerManagedWorkState: T3HomerManagedWorkState | null;
 }
 
 export interface ThreadTurnState {
@@ -165,6 +168,7 @@ export interface SidebarThreadSummary {
   homerSuccessorThreadId: ThreadId | null;
   homerTransitionKind: T3HomerTransitionKind | null;
   homerTaskAnchor: T3HomerTaskAnchor | null;
+  homerManagedWorkState: T3HomerManagedWorkState | null;
   latestUserMessageAt: string | null;
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;

@@ -35,6 +35,7 @@ const HOMER_THREAD_LINKAGE = {
   homerSuccessorThreadId: null,
   homerTransitionKind: null,
   homerTaskAnchor: null,
+  homerManagedWorkState: null,
 } as const;
 
 function withActiveEnvironmentState(
@@ -139,6 +140,7 @@ function makeState(thread: Thread): AppState {
         homerSuccessorThreadId: thread.homerSuccessorThreadId,
         homerTransitionKind: thread.homerTransitionKind,
         homerTaskAnchor: thread.homerTaskAnchor,
+        homerManagedWorkState: thread.homerManagedWorkState,
       },
     },
     threadSessionById: {

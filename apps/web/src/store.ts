@@ -218,6 +218,7 @@ function mapThread(thread: OrchestrationThread, environmentId: EnvironmentId): T
     homerSuccessorThreadId: thread.homerSuccessorThreadId,
     homerTransitionKind: thread.homerTransitionKind,
     homerTaskAnchor: thread.homerTaskAnchor,
+    homerManagedWorkState: thread.homerManagedWorkState,
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
     activities: thread.activities.map((activity) => ({ ...activity })),
   };
@@ -243,6 +244,7 @@ function toThreadShell(thread: Thread): ThreadShell {
     homerSuccessorThreadId: thread.homerSuccessorThreadId,
     homerTransitionKind: thread.homerTransitionKind,
     homerTaskAnchor: thread.homerTaskAnchor,
+    homerManagedWorkState: thread.homerManagedWorkState,
   };
 }
 
@@ -286,6 +288,7 @@ function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
     homerSuccessorThreadId: thread.homerSuccessorThreadId,
     homerTransitionKind: thread.homerTransitionKind,
     homerTaskAnchor: thread.homerTaskAnchor,
+    homerManagedWorkState: thread.homerManagedWorkState,
     latestUserMessageAt: getLatestUserMessageAt(thread.messages),
     hasPendingApprovals: derivePendingApprovals(thread.activities).length > 0,
     hasPendingUserInput: derivePendingUserInputs(thread.activities).length > 0,
@@ -316,6 +319,7 @@ function sidebarThreadSummariesEqual(
     left.homerSuccessorThreadId === right.homerSuccessorThreadId &&
     left.homerTransitionKind === right.homerTransitionKind &&
     left.homerTaskAnchor === right.homerTaskAnchor &&
+    left.homerManagedWorkState === right.homerManagedWorkState &&
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
@@ -343,7 +347,8 @@ function threadShellsEqual(left: ThreadShell | undefined, right: ThreadShell): b
     left.homerSourceThreadId === right.homerSourceThreadId &&
     left.homerSuccessorThreadId === right.homerSuccessorThreadId &&
     left.homerTransitionKind === right.homerTransitionKind &&
-    left.homerTaskAnchor === right.homerTaskAnchor
+    left.homerTaskAnchor === right.homerTaskAnchor &&
+    left.homerManagedWorkState === right.homerManagedWorkState
   );
 }
 
@@ -1114,6 +1119,7 @@ function applyEnvironmentOrchestrationEvent(
           homerSuccessorThreadId: event.payload.homerSuccessorThreadId,
           homerTransitionKind: event.payload.homerTransitionKind,
           homerTaskAnchor: event.payload.homerTaskAnchor,
+          homerManagedWorkState: event.payload.homerManagedWorkState,
           latestTurn: null,
           createdAt: event.payload.createdAt,
           updatedAt: event.payload.updatedAt,
@@ -1169,6 +1175,9 @@ function applyEnvironmentOrchestrationEvent(
           : {}),
         ...(event.payload.homerTaskAnchor !== undefined
           ? { homerTaskAnchor: event.payload.homerTaskAnchor }
+          : {}),
+        ...(event.payload.homerManagedWorkState !== undefined
+          ? { homerManagedWorkState: event.payload.homerManagedWorkState }
           : {}),
         updatedAt: event.payload.updatedAt,
       }));

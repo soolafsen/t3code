@@ -51,6 +51,7 @@ const HOMER_THREAD_LINKAGE = {
   homerSuccessorThreadId: null,
   homerTransitionKind: null,
   homerTaskAnchor: null,
+  homerManagedWorkState: null,
 } as const;
 
 type LegacyProviderRuntimeEvent = {

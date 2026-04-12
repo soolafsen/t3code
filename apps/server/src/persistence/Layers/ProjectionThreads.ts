@@ -11,12 +11,13 @@ import {
   ProjectionThreadRepository,
   type ProjectionThreadRepositoryShape,
 } from "../Services/ProjectionThreads.ts";
-import { ModelSelection, T3HomerTaskAnchor } from "@t3tools/contracts";
+import { ModelSelection, T3HomerManagedWorkState, T3HomerTaskAnchor } from "@t3tools/contracts";
 
 const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
     homerTaskAnchor: Schema.NullOr(Schema.fromJsonString(T3HomerTaskAnchor)),
+    homerManagedWorkState: Schema.NullOr(Schema.fromJsonString(T3HomerManagedWorkState)),
   }),
 );
 type ProjectionThreadDbRow = typeof ProjectionThreadDbRow.Type;
@@ -41,6 +42,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           homer_successor_thread_id,
           homer_transition_kind,
           homer_task_anchor_json,
+          homer_managed_work_state_json,
           latest_turn_id,
           created_at,
           updated_at,
@@ -60,6 +62,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.homerSuccessorThreadId},
           ${row.homerTransitionKind},
           ${row.homerTaskAnchor ? JSON.stringify(row.homerTaskAnchor) : null},
+          ${row.homerManagedWorkState ? JSON.stringify(row.homerManagedWorkState) : null},
           ${row.latestTurnId},
           ${row.createdAt},
           ${row.updatedAt},
@@ -79,6 +82,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           homer_successor_thread_id = excluded.homer_successor_thread_id,
           homer_transition_kind = excluded.homer_transition_kind,
           homer_task_anchor_json = excluded.homer_task_anchor_json,
+          homer_managed_work_state_json = excluded.homer_managed_work_state_json,
           latest_turn_id = excluded.latest_turn_id,
           created_at = excluded.created_at,
           updated_at = excluded.updated_at,
@@ -105,6 +109,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           homer_successor_thread_id AS "homerSuccessorThreadId",
           homer_transition_kind AS "homerTransitionKind",
           homer_task_anchor_json AS "homerTaskAnchor",
+          homer_managed_work_state_json AS "homerManagedWorkState",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -133,6 +138,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           homer_successor_thread_id AS "homerSuccessorThreadId",
           homer_transition_kind AS "homerTransitionKind",
           homer_task_anchor_json AS "homerTaskAnchor",
+          homer_managed_work_state_json AS "homerManagedWorkState",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
           updated_at AS "updatedAt",

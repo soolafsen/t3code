@@ -21,6 +21,7 @@ const HOMER_THREAD_LINKAGE = {
   homerSuccessorThreadId: null,
   homerTransitionKind: null,
   homerTaskAnchor: null,
+  homerManagedWorkState: null,
 } as const;
 
 describe("deriveComposerSendState", () => {
@@ -282,6 +283,7 @@ function setStoreThreads(threads: ReadonlyArray<ReturnType<typeof makeThread>>) 
           homerSuccessorThreadId: thread.homerSuccessorThreadId,
           homerTransitionKind: thread.homerTransitionKind,
           homerTaskAnchor: thread.homerTaskAnchor,
+          homerManagedWorkState: thread.homerManagedWorkState,
         },
       ]),
     ),

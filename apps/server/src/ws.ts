@@ -68,6 +68,7 @@ const HOMER_THREAD_LINKAGE = {
   homerSuccessorThreadId: null,
   homerTransitionKind: null,
   homerTaskAnchor: null,
+  homerManagedWorkState: null,
 } as const;
 
 function toAuthAccessStreamEvent(
@@ -532,6 +533,19 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             Effect.gen(function* () {
               if (command.type === "thread.homer.trigger") {
                 return yield* dispatchHomerTriggerCommand(command);
+              }
+              if (command.type === "thread.turn.start") {
+                const homerResult = yield* t3HomerSupervisor.handleUserTurn({
+                  threadId: command.threadId,
+                  text: command.message.text,
+                  createdAt: command.createdAt,
+                });
+                if (homerResult === "handled") {
+                  const snapshot = yield* projectionSnapshotQuery.getSnapshot();
+                  return {
+                    sequence: snapshot.snapshotSequence,
+                  };
+                }
               }
               const normalizedCommand = yield* normalizeDispatchCommand(command);
               const result = yield* dispatchNormalizedCommand(normalizedCommand);
