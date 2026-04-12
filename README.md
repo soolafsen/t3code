@@ -2,6 +2,19 @@
 
 T3 Code is a minimal web GUI for coding agents (currently Codex and Claude, more coming soon).
 
+## TL;DR
+
+Install dependencies, make sure at least one provider CLI is installed and authenticated, then run the desktop app:
+
+```bash
+bun install
+bun run start
+```
+
+That starts the standalone Electron wrapper, which is now the default local run mode.
+
+Short run guide: [docs/how-to-run.md](./docs/how-to-run.md)
+
 ## Installation
 
 > [!WARNING]
