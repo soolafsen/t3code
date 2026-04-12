@@ -1,6 +1,6 @@
-# T3Homer MVP
+# T3 Homer MVP
 
-T3Homer is the first cut of a deterministic background supervisor for this T3 Code fork.
+T3 Homer is the first cut of a deterministic background supervisor for this T3 Code fork.
 
 The goal of this MVP is narrow:
 
@@ -38,7 +38,7 @@ Checkpoint reset is not part of this MVP yet. Homer only uses restart-from-curre
 
 Homer is controlled by one server-side setting:
 
-- `Settings -> General -> T3Homer`
+- `Settings -> General -> T3 Homer`
 
 That switch enables or disables the background supervisor for the app.
 

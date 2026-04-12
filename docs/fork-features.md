@@ -1,4 +1,4 @@
-# T3Homer Fork Features
+# T3 Homer Fork Features
 
 This document tracks the fork-specific changes that currently matter most compared with vanilla T3 Code.
 
@@ -6,7 +6,7 @@ This document tracks the fork-specific changes that currently matter most compar
 
 ### Desktop scaling
 
-T3Homer adds a desktop-facing interface scale control under `Settings -> General -> Interface scale`.
+T3 Homer adds a desktop-facing interface scale control under `Settings -> General -> Interface scale`.
 
 Current behavior:
 
@@ -19,7 +19,7 @@ This is the practical answer to "the app feels wrong at this scale" rather than 
 
 ### Homer supervision
 
-T3Homer adds a deterministic background supervisor for server-backed threads.
+T3 Homer adds a deterministic background supervisor for server-backed threads.
 
 Current behavior:
 
@@ -36,7 +36,7 @@ To avoid stepping on a standard T3 Code install, the fork now uses its own deskt
 
 Current behavior:
 
-- app-facing labels now use `T3Homer`
+- app-facing labels now use `T3 Homer`
 - local app data defaults to `~/.t3-homer`
 - desktop app identity and user-data naming are fork-specific
 

@@ -1,6 +1,6 @@
-# T3Homer Successor-Thread Beta Plan
+# T3 Homer Successor-Thread Beta Plan
 
-This plan covers the next meaningful step after the current T3Homer MVP:
+This plan covers the next meaningful step after the current T3 Homer MVP:
 
 - keep the current deterministic supervisor
 - keep the current restart-from-current-state path
@@ -316,7 +316,7 @@ This beta is done when:
 
 The next major follow-up should be checkpoint-aware reset.
 
-That would give T3Homer the full two-lane recovery model the original design wanted:
+That would give T3 Homer the full two-lane recovery model the original design wanted:
 
 - session drift -> fresh continuation
 - repo drift -> checkpoint reset

@@ -448,7 +448,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
 
               if (result === "disabled") {
                 return yield* new OrchestrationDispatchCommandError({
-                  message: "Enable T3Homer in Settings before running a manual Homer test.",
+                  message: "Enable T3 Homer in Settings before running a manual Homer test.",
                 });
               }
 

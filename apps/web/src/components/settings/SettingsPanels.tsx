@@ -165,7 +165,7 @@ function getProviderSummary(provider: ServerProvider | undefined) {
     return {
       headline: "Disabled",
       detail:
-        provider.message ?? "This provider is installed but disabled for new sessions in T3Homer.",
+        provider.message ?? "This provider is installed but disabled for new sessions in T3 Homer.",
     };
   }
   if (!provider.installed) {
@@ -390,7 +390,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
         ? ["Assistant output"]
         : []),
-      ...(settings.homer.enabled !== DEFAULT_UNIFIED_SETTINGS.homer.enabled ? ["T3Homer"] : []),
+      ...(settings.homer.enabled !== DEFAULT_UNIFIED_SETTINGS.homer.enabled ? ["T3 Homer"] : []),
       ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
         ? ["New thread mode"]
         : []),
@@ -706,7 +706,7 @@ export function GeneralSettingsPanel() {
       <SettingsSection title="General">
         <SettingsRow
           title="Theme"
-          description="Choose how T3Homer looks across the app."
+          description="Choose how T3 Homer looks across the app."
           resetAction={
             theme !== "system" ? (
               <SettingResetButton label="theme" onClick={() => setTheme("system")} />
@@ -874,12 +874,12 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
-          title="T3Homer"
+          title="T3 Homer"
           description="Run the background session supervisor. Homer watches runtime drift, prepares handoff, and refreshes sessions without turning into another agent."
           resetAction={
             settings.homer.enabled !== DEFAULT_UNIFIED_SETTINGS.homer.enabled ? (
               <SettingResetButton
-                label="T3Homer"
+                label="T3 Homer"
                 onClick={() =>
                   updateSettings({
                     homer: DEFAULT_UNIFIED_SETTINGS.homer,
@@ -899,7 +899,7 @@ export function GeneralSettingsPanel() {
                   },
                 })
               }
-              aria-label="Enable T3Homer background supervision"
+              aria-label="Enable T3 Homer background supervision"
             />
           }
         />

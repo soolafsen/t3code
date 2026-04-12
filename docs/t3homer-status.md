@@ -1,6 +1,6 @@
-# T3Homer Status
+# T3 Homer Status
 
-This is the single overview document for T3Homer.
+This is the single overview document for T3 Homer.
 
 Use it to answer two questions quickly:
 
@@ -11,7 +11,7 @@ If the other Homer docs get more detailed over time, this file should stay short
 
 ## Current State
 
-T3Homer is past the concept stage and into an MVP-plus state:
+T3 Homer is past the concept stage and into an MVP-plus state:
 
 - the MVP supervision loop exists and is working
 - the fork-specific desktop scaling work exists and is working
@@ -22,7 +22,7 @@ What does not exist yet is the full Homer recovery model. The current implementa
 
 ## Core Principles
 
-These principles still define T3Homer:
+These principles still define T3 Homer:
 
 - keep Homer deterministic and server-side
 - use measured signals and rules, not model judgment
@@ -79,7 +79,7 @@ Implemented:
 
 Implemented:
 
-- desktop-facing app name is now `T3Homer`
+- desktop-facing app name is now `T3 Homer`
 - local app data defaults to `~/.t3-homer`
 - the fork uses its own desktop identity and user-data naming where that matters
 

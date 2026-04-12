@@ -187,7 +187,7 @@ const make = Effect.gen(function* () {
     yield* appendActivity({
       threadId: input.threadId,
       kind: T3_HOMER_ACTIVITY_KINDS.supervising,
-      summary: "T3Homer supervising this thread",
+      summary: "T3 Homer is supervising this thread",
       createdAt: input.createdAt,
       payload: {
         mode: "background",
@@ -243,7 +243,7 @@ const make = Effect.gen(function* () {
     yield* appendActivity({
       threadId: input.threadId,
       kind: T3_HOMER_ACTIVITY_KINDS.escalated,
-      summary: "T3Homer needs manual attention",
+      summary: "T3 Homer needs manual attention",
       tone: "error",
       turnId: input.turnId,
       createdAt: input.createdAt,
@@ -291,8 +291,8 @@ const make = Effect.gen(function* () {
       ? T3_HOMER_ACTIVITY_KINDS.sessionInterrupted
       : T3_HOMER_ACTIVITY_KINDS.sessionEnded;
     const stopSummary = input.interruptActiveTurn
-      ? "T3Homer interrupted the current session"
-      : "T3Homer ended the current session";
+      ? "T3 Homer interrupted the current session"
+      : "T3 Homer ended the current session";
 
     if (existingSession && existingSession.status !== "stopped") {
       yield* appendActivity({
@@ -340,7 +340,7 @@ const make = Effect.gen(function* () {
     yield* appendActivity({
       threadId: input.threadId,
       kind: T3_HOMER_ACTIVITY_KINDS.handoffPrepared,
-      summary: "T3Homer prepared a fresh-session handoff",
+      summary: "T3 Homer prepared a fresh-session handoff",
       createdAt: input.createdAt,
       turnId: input.turnId,
       payload: buildHandoffPayload({
@@ -385,7 +385,7 @@ const make = Effect.gen(function* () {
     yield* appendActivity({
       threadId: input.threadId,
       kind: T3_HOMER_ACTIVITY_KINDS.sessionStarted,
-      summary: "T3Homer started a fresh session",
+      summary: "T3 Homer started a fresh session",
       createdAt: input.createdAt,
       turnId: null,
       payload: {
@@ -421,7 +421,7 @@ const make = Effect.gen(function* () {
     yield* appendActivity({
       threadId: input.threadId,
       kind: T3_HOMER_ACTIVITY_KINDS.prepareHandoff,
-      summary: "T3Homer is preparing a handoff",
+      summary: "T3 Homer is preparing a handoff",
       createdAt: input.createdAt,
       turnId: input.turnId,
       payload: {
@@ -588,7 +588,7 @@ const make = Effect.gen(function* () {
         }
         yield* restartFromCurrentState({
           threadId: event.threadId,
-          reason: state.pendingReason ?? "T3Homer requested a clean handoff.",
+          reason: state.pendingReason ?? "T3 Homer requested a clean handoff.",
           createdAt: event.createdAt,
           interruptActiveTurn: false,
           turnId,
