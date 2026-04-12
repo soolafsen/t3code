@@ -51,6 +51,7 @@ function makeSecretStorage(available: boolean): DesktopSecretStorage {
 const clientSettings: ClientSettings = {
   confirmThreadArchive: true,
   confirmThreadDelete: false,
+  desktopZoomFactor: 1.25,
   diffWordWrap: true,
   sidebarProjectSortOrder: "manual",
   sidebarThreadSortOrder: "created_at",

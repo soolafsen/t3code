@@ -15,6 +15,7 @@ import {
   nativeTheme,
   protocol,
   safeStorage,
+  screen,
   shell,
 } from "electron";
 import type { MenuItemConstructorOptions } from "electron";
@@ -28,7 +29,10 @@ import type {
   DesktopUpdateCheckResult,
   DesktopUpdateState,
 } from "@t3tools/contracts";
+import { ClientSettingsSchema } from "@t3tools/contracts";
+import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import { autoUpdater } from "electron-updater";
+import * as Schema from "effect/Schema";
 
 import type { ContextMenuItem } from "@t3tools/contracts";
 import { RotatingFileSink } from "@t3tools/shared/logging";
@@ -67,6 +71,14 @@ import {
   reduceDesktopUpdateStateOnUpdateAvailable,
 } from "./updateMachine";
 import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runtimeArch";
+import {
+  applyDesktopZoomFactor,
+  getDesktopZoomShortcutAction,
+  getNextDesktopZoomFactor,
+  getScaledWindowBounds,
+  resolveDesktopZoomFactor,
+  scaleWindowDimension,
+} from "./windowZoom";
 
 syncShellEnvironment();
 
@@ -1387,7 +1399,10 @@ function registerIpcHandlers(): void {
       throw new Error("Invalid client settings payload.");
     }
 
-    writeClientSettings(CLIENT_SETTINGS_PATH, rawSettings as ClientSettings);
+    const currentSettings = readPersistedClientSettings();
+    const settings = Schema.decodeUnknownSync(ClientSettingsSchema)(rawSettings) as ClientSettings;
+    writePersistedClientSettings(settings);
+    applyDesktopZoomToAllWindows(settings.desktopZoomFactor, currentSettings.desktopZoomFactor);
   });
 
   ipcMain.removeHandler(GET_SAVED_ENVIRONMENT_REGISTRY_CHANNEL);
@@ -1645,16 +1660,84 @@ function getIconOption(): { icon: string } | Record<string, never> {
   return iconPath ? { icon: iconPath } : {};
 }
 
+function readPersistedClientSettings(): ClientSettings {
+  return readClientSettings(CLIENT_SETTINGS_PATH) ?? DEFAULT_CLIENT_SETTINGS;
+}
+
+function writePersistedClientSettings(settings: ClientSettings): void {
+  writeClientSettings(CLIENT_SETTINGS_PATH, settings);
+}
+
+function applyPersistedDesktopZoom(window: BrowserWindow): void {
+  applyDesktopZoomFactor(window.webContents, readPersistedClientSettings().desktopZoomFactor);
+}
+
+function applyDesktopZoomToWindow(
+  window: BrowserWindow,
+  nextZoomFactor: unknown,
+  currentZoomFactor: unknown,
+): void {
+  const resolvedCurrentZoomFactor = resolveDesktopZoomFactor(currentZoomFactor);
+  const resolvedNextZoomFactor = resolveDesktopZoomFactor(nextZoomFactor);
+
+  if (
+    !window.isDestroyed() &&
+    !window.isFullScreen() &&
+    !window.isMaximized() &&
+    !window.isMinimized()
+  ) {
+    const bounds = window.getBounds();
+    const display = screen.getDisplayMatching(bounds);
+    const [minimumWidth, minimumHeight] = window.getMinimumSize();
+    window.setBounds(
+      getScaledWindowBounds({
+        bounds,
+        currentZoomFactor: resolvedCurrentZoomFactor,
+        nextZoomFactor: resolvedNextZoomFactor,
+        minimumSize: {
+          width: Math.max(1, minimumWidth ?? 1),
+          height: Math.max(1, minimumHeight ?? 1),
+        },
+        workArea: display.workArea,
+      }),
+    );
+  }
+
+  applyDesktopZoomFactor(window.webContents, resolvedNextZoomFactor);
+}
+
+function applyDesktopZoomToAllWindows(nextZoomFactor: unknown, currentZoomFactor: unknown): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    applyDesktopZoomToWindow(window, nextZoomFactor, currentZoomFactor);
+  }
+}
+
+function updateDesktopZoom(action: "in" | "out" | "reset"): void {
+  const currentSettings = readPersistedClientSettings();
+  const nextZoomFactor = getNextDesktopZoomFactor(currentSettings.desktopZoomFactor, action);
+  if (nextZoomFactor === currentSettings.desktopZoomFactor) {
+    applyDesktopZoomToAllWindows(nextZoomFactor, currentSettings.desktopZoomFactor);
+    return;
+  }
+
+  writePersistedClientSettings({
+    ...currentSettings,
+    desktopZoomFactor: nextZoomFactor,
+  });
+  applyDesktopZoomToAllWindows(nextZoomFactor, currentSettings.desktopZoomFactor);
+}
+
 function getInitialWindowBackgroundColor(): string {
   return nativeTheme.shouldUseDarkColors ? "#0a0a0a" : "#ffffff";
 }
 
 function createWindow(): BrowserWindow {
+  const initialZoomFactor = readPersistedClientSettings().desktopZoomFactor;
   const window = new BrowserWindow({
-    width: 1100,
-    height: 780,
-    minWidth: 840,
-    minHeight: 620,
+    width: scaleWindowDimension(1100, initialZoomFactor),
+    height: scaleWindowDimension(780, initialZoomFactor),
+    minWidth: scaleWindowDimension(840, initialZoomFactor),
+    minHeight: scaleWindowDimension(620, initialZoomFactor),
     show: isDevelopment,
     autoHideMenuBar: true,
     backgroundColor: getInitialWindowBackgroundColor(),
@@ -1668,6 +1751,17 @@ function createWindow(): BrowserWindow {
       nodeIntegration: false,
       sandbox: true,
     },
+  });
+  applyPersistedDesktopZoom(window);
+
+  window.webContents.on("before-input-event", (event, input) => {
+    const zoomAction = getDesktopZoomShortcutAction(input);
+    if (!zoomAction) {
+      return;
+    }
+
+    event.preventDefault();
+    updateDesktopZoom(zoomAction);
   });
 
   window.webContents.on("context-menu", (event, params) => {

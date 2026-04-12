@@ -15,6 +15,11 @@ export const TimestampFormat = Schema.Literals(["locale", "12-hour", "24-hour"])
 export type TimestampFormat = typeof TimestampFormat.Type;
 export const DEFAULT_TIMESTAMP_FORMAT: TimestampFormat = "locale";
 
+export const DESKTOP_ZOOM_FACTOR_VALUES = [0.8, 0.9, 1, 1.1, 1.25, 1.5] as const;
+export const DesktopZoomFactor = Schema.Literals(DESKTOP_ZOOM_FACTOR_VALUES);
+export type DesktopZoomFactor = typeof DesktopZoomFactor.Type;
+export const DEFAULT_DESKTOP_ZOOM_FACTOR: DesktopZoomFactor = 1;
+
 export const SidebarProjectSortOrder = Schema.Literals(["updated_at", "created_at", "manual"]);
 export type SidebarProjectSortOrder = typeof SidebarProjectSortOrder.Type;
 export const DEFAULT_SIDEBAR_PROJECT_SORT_ORDER: SidebarProjectSortOrder = "updated_at";
@@ -26,6 +31,9 @@ export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "update
 export const ClientSettingsSchema = Schema.Struct({
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   confirmThreadDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  desktopZoomFactor: DesktopZoomFactor.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_DESKTOP_ZOOM_FACTOR)),
+  ),
   diffWordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   sidebarProjectSortOrder: SidebarProjectSortOrder.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_SORT_ORDER)),

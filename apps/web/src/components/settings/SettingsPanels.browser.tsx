@@ -443,6 +443,21 @@ describe("GeneralSettingsPanel observability", () => {
       .toBeInTheDocument();
   });
 
+  it("shows the desktop-only interface scale control when running inside Electron", async () => {
+    window.desktopBridge = createDesktopBridgeStub();
+    setServerConfigSnapshot(createBaseServerConfig());
+
+    mounted = await render(
+      <AppAtomRegistryProvider>
+        <GeneralSettingsPanel />
+      </AppAtomRegistryProvider>,
+    );
+
+    await expect.element(page.getByText("Interface scale")).toBeInTheDocument();
+    await expect.element(page.getByLabelText("Interface scale")).toBeInTheDocument();
+    await expect.element(page.getByText("100%")).toBeInTheDocument();
+  });
+
   it("creates and shows a pairing link when network access is enabled", async () => {
     window.desktopBridge = createDesktopBridgeStub({
       serverExposureState: {
