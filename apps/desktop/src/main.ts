@@ -15,6 +15,7 @@ import {
   nativeTheme,
   protocol,
   safeStorage,
+  screen,
   shell,
 } from "electron";
 import type { MenuItemConstructorOptions } from "electron";
@@ -74,6 +75,9 @@ import {
   applyDesktopZoomFactor,
   getDesktopZoomShortcutAction,
   getNextDesktopZoomFactor,
+  getScaledWindowBounds,
+  resolveDesktopZoomFactor,
+  scaleWindowDimension,
 } from "./windowZoom";
 
 syncShellEnvironment();
@@ -1395,9 +1399,10 @@ function registerIpcHandlers(): void {
       throw new Error("Invalid client settings payload.");
     }
 
+    const currentSettings = readPersistedClientSettings();
     const settings = Schema.decodeUnknownSync(ClientSettingsSchema)(rawSettings) as ClientSettings;
     writePersistedClientSettings(settings);
-    applyDesktopZoomToAllWindows(settings.desktopZoomFactor);
+    applyDesktopZoomToAllWindows(settings.desktopZoomFactor, currentSettings.desktopZoomFactor);
   });
 
   ipcMain.removeHandler(GET_SAVED_ENVIRONMENT_REGISTRY_CHANNEL);
@@ -1667,9 +1672,43 @@ function applyPersistedDesktopZoom(window: BrowserWindow): void {
   applyDesktopZoomFactor(window.webContents, readPersistedClientSettings().desktopZoomFactor);
 }
 
-function applyDesktopZoomToAllWindows(rawZoomFactor: unknown): void {
+function applyDesktopZoomToWindow(
+  window: BrowserWindow,
+  nextZoomFactor: unknown,
+  currentZoomFactor: unknown,
+): void {
+  const resolvedCurrentZoomFactor = resolveDesktopZoomFactor(currentZoomFactor);
+  const resolvedNextZoomFactor = resolveDesktopZoomFactor(nextZoomFactor);
+
+  if (
+    !window.isDestroyed() &&
+    !window.isFullScreen() &&
+    !window.isMaximized() &&
+    !window.isMinimized()
+  ) {
+    const bounds = window.getBounds();
+    const display = screen.getDisplayMatching(bounds);
+    const [minimumWidth, minimumHeight] = window.getMinimumSize();
+    window.setBounds(
+      getScaledWindowBounds({
+        bounds,
+        currentZoomFactor: resolvedCurrentZoomFactor,
+        nextZoomFactor: resolvedNextZoomFactor,
+        minimumSize: {
+          width: Math.max(1, minimumWidth ?? 1),
+          height: Math.max(1, minimumHeight ?? 1),
+        },
+        workArea: display.workArea,
+      }),
+    );
+  }
+
+  applyDesktopZoomFactor(window.webContents, resolvedNextZoomFactor);
+}
+
+function applyDesktopZoomToAllWindows(nextZoomFactor: unknown, currentZoomFactor: unknown): void {
   for (const window of BrowserWindow.getAllWindows()) {
-    applyDesktopZoomFactor(window.webContents, rawZoomFactor);
+    applyDesktopZoomToWindow(window, nextZoomFactor, currentZoomFactor);
   }
 }
 
@@ -1677,7 +1716,7 @@ function updateDesktopZoom(action: "in" | "out" | "reset"): void {
   const currentSettings = readPersistedClientSettings();
   const nextZoomFactor = getNextDesktopZoomFactor(currentSettings.desktopZoomFactor, action);
   if (nextZoomFactor === currentSettings.desktopZoomFactor) {
-    applyDesktopZoomToAllWindows(nextZoomFactor);
+    applyDesktopZoomToAllWindows(nextZoomFactor, currentSettings.desktopZoomFactor);
     return;
   }
 
@@ -1685,7 +1724,7 @@ function updateDesktopZoom(action: "in" | "out" | "reset"): void {
     ...currentSettings,
     desktopZoomFactor: nextZoomFactor,
   });
-  applyDesktopZoomToAllWindows(nextZoomFactor);
+  applyDesktopZoomToAllWindows(nextZoomFactor, currentSettings.desktopZoomFactor);
 }
 
 function getInitialWindowBackgroundColor(): string {
@@ -1693,11 +1732,12 @@ function getInitialWindowBackgroundColor(): string {
 }
 
 function createWindow(): BrowserWindow {
+  const initialZoomFactor = readPersistedClientSettings().desktopZoomFactor;
   const window = new BrowserWindow({
-    width: 1100,
-    height: 780,
-    minWidth: 840,
-    minHeight: 620,
+    width: scaleWindowDimension(1100, initialZoomFactor),
+    height: scaleWindowDimension(780, initialZoomFactor),
+    minWidth: scaleWindowDimension(840, initialZoomFactor),
+    minHeight: scaleWindowDimension(620, initialZoomFactor),
     show: isDevelopment,
     autoHideMenuBar: true,
     backgroundColor: getInitialWindowBackgroundColor(),

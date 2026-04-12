@@ -4,7 +4,9 @@ import {
   applyDesktopZoomFactor,
   getDesktopZoomShortcutAction,
   getNextDesktopZoomFactor,
+  getScaledWindowBounds,
   resolveDesktopZoomFactor,
+  scaleWindowDimension,
 } from "./windowZoom";
 
 describe("windowZoom", () => {
@@ -53,6 +55,45 @@ describe("windowZoom", () => {
       }),
     ).toBe("reset");
     expect(getDesktopZoomShortcutAction({ type: "keyDown", key: "=", code: "Equal" })).toBeNull();
+  });
+
+  it("scales window dimensions for persisted startup sizing", () => {
+    expect(scaleWindowDimension(1100, 1.25)).toBe(1375);
+    expect(scaleWindowDimension(780, 0.8)).toBe(624);
+  });
+
+  it("scales and centers window bounds with the zoom change", () => {
+    expect(
+      getScaledWindowBounds({
+        bounds: { x: 100, y: 120, width: 1100, height: 780 },
+        currentZoomFactor: 1,
+        nextZoomFactor: 1.25,
+        minimumSize: { width: 840, height: 620 },
+        workArea: { x: 0, y: 0, width: 1800, height: 1200 },
+      }),
+    ).toEqual({
+      x: 0,
+      y: 22,
+      width: 1375,
+      height: 975,
+    });
+  });
+
+  it("clamps scaled bounds into the available work area", () => {
+    expect(
+      getScaledWindowBounds({
+        bounds: { x: 1400, y: 700, width: 1100, height: 780 },
+        currentZoomFactor: 1,
+        nextZoomFactor: 1.5,
+        minimumSize: { width: 840, height: 620 },
+        workArea: { x: 0, y: 0, width: 1920, height: 1080 },
+      }),
+    ).toEqual({
+      x: 270,
+      y: 0,
+      width: 1650,
+      height: 1080,
+    });
   });
 
   it("applies the resolved zoom factor to the target", () => {
