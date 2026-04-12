@@ -78,3 +78,6 @@ If this MVP proves stable, the next sensible additions are:
 1. checkpoint-aware reset when the current repo state is no longer trustworthy
 2. better no-progress and repeated re-steer detection
 3. more explicit per-thread Homer state in the read model if the lightweight activity-based UI stops being enough
+
+Successor-thread beta plan: [docs/t3homer-successor-thread-beta-plan.md](./t3homer-successor-thread-beta-plan.md)
+Status overview: [docs/t3homer-status.md](./t3homer-status.md)

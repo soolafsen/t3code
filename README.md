@@ -35,6 +35,7 @@ Visible cues today:
 - a `Test Homer` button on server-backed threads whenever Homer is enabled
 
 Detailed fork notes: [docs/fork-features.md](./docs/fork-features.md)
+T3Homer status: [docs/t3homer-status.md](./docs/t3homer-status.md)
 
 ## Upstream Compatibility
 
@@ -90,7 +91,7 @@ Upstream project docs that are still directly relevant:
 Observability guide: [docs/observability.md](./docs/observability.md)
 Local fork/sync guide: [docs/local-customization.md](./docs/local-customization.md)
 Fork feature notes: [docs/fork-features.md](./docs/fork-features.md)
-T3Homer guide: [docs/t3homer.md](./docs/t3homer.md)
+T3Homer status: [docs/t3homer-status.md](./docs/t3homer-status.md)
 T3Homer MVP: [docs/t3homer-mvp.md](./docs/t3homer-mvp.md)
 
 ## If you REALLY want to contribute still.... read this first

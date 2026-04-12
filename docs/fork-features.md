@@ -57,6 +57,7 @@ The test button uses the real supervisor restart path. It is not a fake UI-only 
 
 ## Files and Docs To Read Next
 
+- [docs/t3homer-status.md](./t3homer-status.md)
 - [docs/how-to-run.md](./how-to-run.md)
-- [docs/t3homer.md](./t3homer.md)
 - [docs/t3homer-mvp.md](./t3homer-mvp.md)
+- [docs/t3homer-successor-thread-beta-plan.md](./t3homer-successor-thread-beta-plan.md)
