@@ -402,6 +402,80 @@ describe("T3HomerSupervisor", () => {
     expect(harness.provider.counts().startedCount).toBe(1);
   });
 
+  it("persists the completion contract across restart-in-place handoffs", async () => {
+    const harness = await createHarness();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-homer-completion-contract"),
+        threadId: asThreadId("thread-1"),
+        message: {
+          messageId: asMessageId("msg-homer-completion-contract"),
+          role: "user",
+          text: [
+            "Your task is implement the next Homer endurance fix.",
+            "",
+            "Start by reading:",
+            "- docs/t3homer-successor-thread-beta-plan.md",
+            "- docs/t3homer-endurance-next-steps.md",
+            "",
+            "Constraints:",
+            "- keep Homer deterministic and server-side",
+            "",
+            "When all tasks are complete, say exactly `I'm done`.",
+          ].join("\n"),
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: "2026-04-12T21:40:00.000Z",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-12T21:41:00.000Z",
+        reason: "Restart in place should preserve the completion contract.",
+      }),
+    );
+
+    const thread = await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.session?.status === "ready" &&
+        candidate.homerTaskAnchor?.requiredExactCompletionPhrase === "I'm done",
+    );
+
+    const handoffActivity = thread.activities.find(
+      (activity) => activity.kind === T3_HOMER_ACTIVITY_KINDS.handoffPrepared,
+    );
+    const handoffPayload = handoffActivity?.payload as
+      | {
+          taskAnchor?: {
+            requiredExactCompletionPhrase?: string | null;
+            completionChecks?: string[];
+          };
+        }
+      | undefined;
+
+    expect(thread.homerManagedWorkState).toEqual({
+      status: "active",
+      executionPolicy: "restart_in_place",
+      activatedAt: "2026-04-12T21:41:00.000Z",
+      updatedAt: "2026-04-12T21:41:00.000Z",
+    });
+    expect(thread.homerTaskAnchor?.requiredExactCompletionPhrase).toBe("I'm done");
+    expect(thread.homerTaskAnchor?.completionChecks).toContain(
+      "When all tasks are complete, say exactly `I'm done`.",
+    );
+    expect(handoffPayload?.taskAnchor?.requiredExactCompletionPhrase).toBe("I'm done");
+    expect(handoffPayload?.taskAnchor?.completionChecks).toContain(
+      "When all tasks are complete, say exactly `I'm done`.",
+    );
+  });
+
   it("spawns a successor thread on the second intervention and retires the old authority", async () => {
     const harness = await createHarness();
 
@@ -426,6 +500,8 @@ describe("T3HomerSupervisor", () => {
             "Non-goals:",
             "- no model-written handoffs",
             "- no autonomous replanning",
+            "",
+            "When all tasks are complete, say exactly `I'm done`.",
           ].join("\n"),
           attachments: [],
         },
@@ -523,6 +599,10 @@ describe("T3HomerSupervisor", () => {
     expect(sourceThread.homerTaskAnchor?.sourceDocumentPaths).toContain(
       "docs/t3homer-successor-thread-beta-plan.md",
     );
+    expect(sourceThread.homerTaskAnchor?.requiredExactCompletionPhrase).toBe("I'm done");
+    expect(sourceThread.homerTaskAnchor?.completionChecks).toContain(
+      "When all tasks are complete, say exactly `I'm done`.",
+    );
     expect(
       sourceThread.activities.some(
         (activity) => activity.kind === T3_HOMER_ACTIVITY_KINDS.handoffPrepared,
@@ -548,8 +628,12 @@ describe("T3HomerSupervisor", () => {
     expect(successorHandoffMessage).toContain("docs/t3homer-successor-thread-beta-plan.md");
     expect(successorHandoffMessage).toContain("keep Homer deterministic and server-side");
     expect(successorHandoffMessage).toContain("no model-written handoffs");
+    expect(successorHandoffMessage).toContain("Required exact completion phrase: I'm done");
     expect(successorHandoffMessage).toContain(
-      "Treat short status/progress questions as status checks, not as new assignments.",
+      "When all tasks are complete, say exactly `I'm done`.",
+    );
+    expect(successorHandoffMessage).toContain(
+      "Treat short status checks, completion questions, and continue nudges as managed continuation, not as new assignments.",
     );
     expect(successorHandoffMessage).not.toContain("Are you still working on the tasks?");
     expect(harness.provider.counts().stoppedCount).toBe(2);
@@ -557,7 +641,7 @@ describe("T3HomerSupervisor", () => {
     expect(harness.provider.counts().startedSessions.at(-1)?.threadId).toBe(successorThread?.id);
   });
 
-  it("resumes managed work deterministically when a successor thread receives a status check", async () => {
+  it("resumes managed work deterministically when a successor thread receives a managed follow-up", async () => {
     const harness = await createHarness();
 
     await Effect.runPromise(
@@ -578,6 +662,8 @@ describe("T3HomerSupervisor", () => {
             "",
             "Non-goals:",
             "- no model-written handoffs",
+            "",
+            "When all tasks are complete, say exactly `I'm done`.",
           ].join("\n"),
           attachments: [],
         },
@@ -621,7 +707,7 @@ describe("T3HomerSupervisor", () => {
     const result = await Effect.runPromise(
       harness.supervisor.handleUserTurn({
         threadId: successorThreadId,
-        text: "Are you still working on the tasks?",
+        text: "look at your tasks",
         createdAt: "2026-04-12T22:22:00.000Z",
       }),
     );
@@ -651,6 +737,12 @@ describe("T3HomerSupervisor", () => {
     }
     expect(successorThread).not.toBeNull();
 
+    const handledActivity = successorThread!.activities.find(
+      (activity) => activity.kind === T3_HOMER_ACTIVITY_KINDS.statusCheckHandled,
+    );
+    const handledPayload = handledActivity?.payload as
+      | { followUpKind?: string; followUpText?: string }
+      | undefined;
     const continuationPrompt =
       successorThread!.messages.find(
         (message) =>
@@ -665,14 +757,91 @@ describe("T3HomerSupervisor", () => {
     });
     expect(
       successorThread!.messages.some(
-        (message) =>
-          message.role === "user" && message.text === "Are you still working on the tasks?",
+        (message) => message.role === "user" && message.text === "look at your tasks",
       ),
     ).toBe(false);
-    expect(continuationPrompt).toContain("This status check does not change the assignment.");
+    expect(handledPayload).toEqual(
+      expect.objectContaining({
+        followUpKind: "resume_managed_work",
+        followUpText: "look at your tasks",
+      }),
+    );
+    expect(continuationPrompt).toContain("Managed follow-up kind: resume_managed_work");
+    expect(continuationPrompt).toContain("This managed follow-up does not change the assignment.");
     expect(continuationPrompt).toContain("docs/t3homer-successor-thread-beta-plan.md");
     expect(continuationPrompt).toContain("keep Homer deterministic and server-side");
     expect(continuationPrompt).toContain("no model-written handoffs");
+    expect(continuationPrompt).toContain("Required exact completion phrase: I'm done");
+    expect(continuationPrompt).toContain("When all tasks are complete, say exactly `I'm done`.");
+  });
+
+  it("releases managed authority only when the user clearly takes back control", async () => {
+    const harness = await createHarness();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-homer-user-takeover-assignment"),
+        threadId: asThreadId("thread-1"),
+        message: {
+          messageId: asMessageId("msg-homer-user-takeover-assignment"),
+          role: "user",
+          text: [
+            "Your task is implement successor-thread beta for Homer.",
+            "",
+            "Read docs/t3homer-successor-thread-beta-plan.md and continue the same assignment.",
+          ].join("\n"),
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: "2026-04-12T22:30:00.000Z",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-12T22:31:00.000Z",
+        reason: "Manual successor-thread validation.",
+        executionPolicy: "spawn_successor_thread",
+      }),
+    );
+
+    const sourceThread = await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.homerSuccessorThreadId !== null && candidate.session?.status === "stopped",
+    );
+    const successorThreadId = sourceThread.homerSuccessorThreadId!;
+
+    const successorReadyDeadline = Date.now() + 2_000;
+    let successorReadyThread: Awaited<ReturnType<typeof readThreadById>> = null;
+    while (Date.now() < successorReadyDeadline) {
+      successorReadyThread = await readThreadById(harness.engine, successorThreadId);
+      if (
+        successorReadyThread?.session?.status === "ready" &&
+        successorReadyThread.homerManagedWorkState?.status === "active"
+      ) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(successorReadyThread?.session?.status).toBe("ready");
+    expect(successorReadyThread?.homerManagedWorkState?.status).toBe("active");
+
+    const result = await Effect.runPromise(
+      harness.supervisor.handleUserTurn({
+        threadId: successorThreadId,
+        text: "Switch to documenting the API instead.",
+        createdAt: "2026-04-12T22:32:00.000Z",
+      }),
+    );
+
+    expect(result).toBe("pass_through");
+
+    const successorThread = await readThreadById(harness.engine, successorThreadId);
+    expect(successorThread?.homerManagedWorkState).toBeNull();
   });
 
   it("supports an explicit successor-thread manual trigger for dev validation", async () => {

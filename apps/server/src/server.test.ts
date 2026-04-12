@@ -2870,7 +2870,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("intercepts managed status-check turns through Homer before normal dispatch", () =>
+  it.effect("intercepts managed follow-up turns through Homer before normal dispatch", () =>
     Effect.gen(function* () {
       const handleUserTurnCalls: Array<Parameters<T3HomerSupervisorShape["handleUserTurn"]>[0]> =
         [];
@@ -2913,7 +2913,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             message: {
               messageId: MessageId.make("msg-managed-status-check"),
               role: "user",
-              text: "Are you still working?",
+              text: "look at your tasks",
               attachments: [],
             },
             runtimeMode: "full-access",
@@ -2927,7 +2927,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.deepEqual(handleUserTurnCalls, [
         {
           threadId: ThreadId.make("thread-1"),
-          text: "Are you still working?",
+          text: "look at your tasks",
           createdAt,
         },
       ]);

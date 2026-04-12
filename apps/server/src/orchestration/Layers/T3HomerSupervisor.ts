@@ -32,8 +32,25 @@ const HOMER_GOAL_MAX_CHARS = 220;
 const HOMER_DETAIL_MAX_CHARS = 180;
 const HOMER_TITLE_SUFFIX_RE = /\s+\(Homer \d+\)$/;
 const HOMER_SECTION_HEADER_RE = /^\s*([A-Za-z][A-Za-z\s/-]+):\s*$/;
-const HOMER_STATUS_CHECK_RE =
-  /^(are you still|still working|status\??$|status update|progress\??$|keep going\b|continue\b|are you done\b|done\??$|working on the tasks\??)/i;
+const HOMER_MANAGED_FOLLOW_UP_MAX_CHARS = 200;
+const HOMER_STATUS_CHECK_PATTERNS = [
+  /^(?:are you still working|are you still working on (?:the )?tasks|still working|status|status update|progress|progress update|working on (?:the )?tasks)\??$/i,
+] as const;
+const HOMER_RESUME_MANAGED_WORK_PATTERNS = [
+  /^(?:continue|keep going|keep working|resume|pick up where you left off)\.?$/i,
+  /^(?:finish (?:it|the task|the tasks|the remaining tasks|the remaining work))\.?$/i,
+  /^(?:look at|check|review) (?:your|the) tasks\.?$/i,
+] as const;
+const HOMER_COMPLETION_CHECK_PATTERNS = [
+  /^(?:are you done|are you finished|are you complete|done|finished|complete)\??$/i,
+  /^(?:what remains|what's left|what is left|anything left|what remains on (?:the )?tasks)\??$/i,
+] as const;
+
+type HomerManagedFollowUpKind =
+  | "status_check"
+  | "resume_managed_work"
+  | "completion_check"
+  | "user_takes_back_control";
 
 type SupervisorDomainEvent = Extract<
   OrchestrationEvent,
@@ -102,11 +119,102 @@ function stripHomerTitleSuffix(title: string): string {
   return title.replace(HOMER_TITLE_SUFFIX_RE, "").trim();
 }
 
-function isStatusCheckMessage(text: string): boolean {
-  const normalized = text.trim();
-  return (
-    normalized.length > 0 && normalized.length <= 200 && HOMER_STATUS_CHECK_RE.test(normalized)
+function areStringArraysEqual(left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function normalizeMessageText(text: string): string {
+  return text.trim().replace(/\s+/g, " ");
+}
+
+function normalizeInstructionLine(line: string): string {
+  return line.trim().replace(/^[-*]\s+/, "");
+}
+
+function matchesManagedFollowUpPattern(text: string, patterns: ReadonlyArray<RegExp>): boolean {
+  return patterns.some((pattern) => pattern.test(text));
+}
+
+function classifyManagedFollowUpMessage(text: string): HomerManagedFollowUpKind {
+  const trimmed = text.trim();
+  const normalized = normalizeMessageText(text);
+  if (trimmed.length === 0) {
+    return "user_takes_back_control";
+  }
+  if (
+    trimmed.length > HOMER_MANAGED_FOLLOW_UP_MAX_CHARS ||
+    trimmed.includes("\n") ||
+    trimmed.includes("\r") ||
+    trimmed.includes("```")
+  ) {
+    return "user_takes_back_control";
+  }
+  if (matchesManagedFollowUpPattern(normalized, HOMER_COMPLETION_CHECK_PATTERNS)) {
+    return "completion_check";
+  }
+  if (matchesManagedFollowUpPattern(normalized, HOMER_RESUME_MANAGED_WORK_PATTERNS)) {
+    return "resume_managed_work";
+  }
+  if (matchesManagedFollowUpPattern(normalized, HOMER_STATUS_CHECK_PATTERNS)) {
+    return "status_check";
+  }
+  return "user_takes_back_control";
+}
+
+function isManagedFollowUpMessage(text: string): boolean {
+  return classifyManagedFollowUpMessage(text) !== "user_takes_back_control";
+}
+
+function extractRequiredExactCompletionPhrase(text: string): string | null {
+  const matches = Array.from(
+    text.matchAll(/\b(?:say|reply|respond|output)\s+exactly\s+(?:`([^`]+)`|"([^"]+)"|'([^']+)')/gi),
   );
+  const latestMatch = matches.at(-1);
+  if (!latestMatch) {
+    return null;
+  }
+  const phrase = latestMatch[1] ?? latestMatch[2] ?? latestMatch[3] ?? null;
+  const normalized = phrase?.trim() ?? "";
+  return normalized.length > 0 ? normalized : null;
+}
+
+function extractCompletionChecks(
+  text: string,
+  requiredExactCompletionPhrase: string | null,
+): string[] {
+  const matchingLines = normalizeTrimmedValues(
+    text
+      .split(/\r?\n/)
+      .map(normalizeInstructionLine)
+      .filter(
+        (line) =>
+          line.length > 0 &&
+          /(?:\b(?:say|reply|respond|output)\s+exactly\b|\bwhen\b.*\bcomplete\b|\bonly\b.*\bcomplete\b|\bdo not\b.*\buntil\b.*\bcomplete\b)/i.test(
+            line,
+          ),
+      ),
+  );
+  if (matchingLines.length > 0) {
+    return matchingLines;
+  }
+  if (requiredExactCompletionPhrase === null) {
+    return [];
+  }
+  return [
+    "Only emit the required exact completion phrase when the authoritative assignment is genuinely complete.",
+    "Do not emit the required exact completion phrase for status updates or partial completion.",
+  ];
+}
+
+function buildCompletionContractLines(taskAnchor: T3HomerTaskAnchor): string[] {
+  return [
+    "Completion contract:",
+    `Required exact completion phrase: ${taskAnchor.requiredExactCompletionPhrase ?? "none recorded."}`,
+    "Completion checks:",
+    ...(taskAnchor.completionChecks.length > 0
+      ? taskAnchor.completionChecks.map((entry) => `- ${entry}`)
+      : ["- None recorded."]),
+  ];
 }
 
 function isHomerInjectedUserMessage(text: string): boolean {
@@ -189,13 +297,16 @@ function getUserMessages(thread: OrchestrationThread): OrchestrationMessage[] {
 function getAuthoritativeUserMessages(thread: OrchestrationThread): OrchestrationMessage[] {
   const userMessages = getUserMessages(thread);
   const nonSyntheticMessages = userMessages.filter(
-    (message) => !isStatusCheckMessage(message.text) && !isHomerInjectedUserMessage(message.text),
+    (message) =>
+      !isManagedFollowUpMessage(message.text) && !isHomerInjectedUserMessage(message.text),
   );
   if (nonSyntheticMessages.length > 0) {
     return nonSyntheticMessages;
   }
-  const nonStatusMessages = userMessages.filter((message) => !isStatusCheckMessage(message.text));
-  return nonStatusMessages.length > 0 ? nonStatusMessages : userMessages;
+  const nonManagedMessages = userMessages.filter(
+    (message) => !isManagedFollowUpMessage(message.text),
+  );
+  return nonManagedMessages.length > 0 ? nonManagedMessages : userMessages;
 }
 
 function buildSuccessorHandoffPrompt(input: {
@@ -230,9 +341,11 @@ function buildSuccessorHandoffPrompt(input: {
     "",
     `Branch expectation: ${taskAnchor.branchExpectation ?? "current branch context"}`,
     "",
+    ...buildCompletionContractLines(taskAnchor),
+    "",
     "Continuity rules:",
     "- This assignment remains authoritative until the user explicitly changes it.",
-    "- Treat short status/progress questions as status checks, not as new assignments.",
+    "- Treat short status checks, completion questions, and continue nudges as managed continuation, not as new assignments.",
     "- Do not ask what the original assignment was.",
     "",
     `Goal: ${input.payload.goal}`,
@@ -270,18 +383,21 @@ function buildManagedContinuationPrompt(input: {
   readonly thread: OrchestrationThread;
   readonly taskAnchor: T3HomerTaskAnchor;
   readonly executionPolicy: T3HomerExecutionPolicy;
-  readonly statusCheckText: string;
+  readonly followUpText: string;
+  readonly followUpKind: HomerManagedFollowUpKind;
 }) {
   const sections = [
     "T3 Homer managed-work continuation.",
     "",
     `Thread: ${input.thread.id}`,
     `Execution policy: ${input.executionPolicy}`,
-    `Status check received: ${truncateValue(input.statusCheckText, 120)}`,
+    `Managed follow-up kind: ${input.followUpKind}`,
+    `Managed follow-up received: ${truncateValue(input.followUpText, 120)}`,
     "",
     "Authority rules:",
-    "- This status check does not change the assignment.",
+    "- This managed follow-up does not change the assignment.",
     "- Continue the existing authoritative task until the user gives a real new instruction.",
+    "- If the task is not complete, continue working or report what remains without claiming completion.",
     "",
     `Objective: ${input.taskAnchor.objective}`,
     "",
@@ -301,6 +417,8 @@ function buildManagedContinuationPrompt(input: {
       : ["- None recorded."]),
     "",
     `Branch expectation: ${input.taskAnchor.branchExpectation ?? "current branch context"}`,
+    "",
+    ...buildCompletionContractLines(input.taskAnchor),
     "",
     "Continue work from the current repository and thread state. Do not re-ask for the original assignment.",
   ];
@@ -463,14 +581,41 @@ const make = Effect.gen(function* () {
     readonly thread: OrchestrationThread;
     readonly createdAt: string;
   }) {
-    if (input.thread.homerTaskAnchor) {
-      return input.thread.homerTaskAnchor;
-    }
-
     const authoritativeMessages = getAuthoritativeUserMessages(input.thread);
     const authoritativeMessage = authoritativeMessages[0] ?? null;
     const authoritativeText = authoritativeMessage?.text ?? input.thread.title;
     const allRelevantText = authoritativeMessages.map((message) => message.text).join("\n\n");
+    const requiredExactCompletionPhrase = extractRequiredExactCompletionPhrase(allRelevantText);
+    const completionChecks = extractCompletionChecks(
+      allRelevantText,
+      requiredExactCompletionPhrase,
+    );
+
+    if (input.thread.homerTaskAnchor) {
+      const existingTaskAnchor = input.thread.homerTaskAnchor;
+      if (
+        existingTaskAnchor.requiredExactCompletionPhrase === requiredExactCompletionPhrase &&
+        areStringArraysEqual(existingTaskAnchor.completionChecks, completionChecks)
+      ) {
+        return existingTaskAnchor;
+      }
+
+      const refreshedTaskAnchor: T3HomerTaskAnchor = {
+        ...existingTaskAnchor,
+        requiredExactCompletionPhrase,
+        completionChecks,
+        updatedAt: input.createdAt,
+      };
+
+      yield* orchestrationEngine.dispatch({
+        type: "thread.meta.update",
+        commandId: serverCommandId("task-anchor-refresh"),
+        threadId: input.thread.id,
+        homerTaskAnchor: refreshedTaskAnchor,
+      });
+
+      return refreshedTaskAnchor;
+    }
 
     const taskAnchor: T3HomerTaskAnchor = {
       objective: extractObjective(authoritativeText, input.thread.title),
@@ -479,6 +624,8 @@ const make = Effect.gen(function* () {
       nonGoals: extractSectionEntries(authoritativeText, ["Non-goals", "Non-goal", "Non goals"]),
       branchExpectation: input.thread.branch,
       authoritativeUserMessageId: authoritativeMessage?.id ?? null,
+      requiredExactCompletionPhrase,
+      completionChecks,
       updatedAt: input.createdAt,
     };
 
@@ -1121,7 +1268,8 @@ const make = Effect.gen(function* () {
         return "pass_through";
       }
 
-      if (!isStatusCheckMessage(input.text)) {
+      const followUpKind = classifyManagedFollowUpMessage(input.text);
+      if (followUpKind === "user_takes_back_control") {
         yield* setManagedWorkState({
           threadId: input.threadId,
           state: null,
@@ -1133,11 +1281,12 @@ const make = Effect.gen(function* () {
       yield* appendActivity({
         threadId: input.threadId,
         kind: T3_HOMER_ACTIVITY_KINDS.statusCheckHandled,
-        summary: "T3 Homer handled a status-check turn deterministically",
+        summary: "T3 Homer handled a managed follow-up turn deterministically",
         createdAt: input.createdAt,
         tone: "info",
         payload: {
-          statusCheckText: truncateValue(input.text, 120),
+          followUpText: truncateValue(input.text, 120),
+          followUpKind,
           managedStatus: managedState.status,
           executionPolicy: managedState.executionPolicy,
         },
@@ -1205,7 +1354,8 @@ const make = Effect.gen(function* () {
             thread,
             taskAnchor,
             executionPolicy: managedState.executionPolicy,
-            statusCheckText: input.text,
+            followUpText: input.text,
+            followUpKind,
           }),
           attachments: [],
         },

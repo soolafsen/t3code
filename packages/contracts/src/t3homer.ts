@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import {
   CheckpointRef,
   IsoDateTime,
@@ -52,6 +52,12 @@ export const T3HomerTaskAnchor = Schema.Struct({
   nonGoals: Schema.Array(TrimmedNonEmptyString),
   branchExpectation: Schema.NullOr(TrimmedNonEmptyString),
   authoritativeUserMessageId: Schema.NullOr(MessageId),
+  requiredExactCompletionPhrase: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  completionChecks: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   updatedAt: IsoDateTime,
 });
 export type T3HomerTaskAnchor = typeof T3HomerTaskAnchor.Type;
