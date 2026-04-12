@@ -29,6 +29,12 @@ const threadP2 = ThreadId.make("thread-shared-primary-2");
 const threadR1 = ThreadId.make("thread-shared-remote-1");
 const threadL1 = ThreadId.make("thread-local-only-1");
 const threadRO1 = ThreadId.make("thread-remote-only-1");
+const HOMER_THREAD_LINKAGE = {
+  homerSourceThreadId: null,
+  homerSuccessorThreadId: null,
+  homerTransitionKind: null,
+  homerTaskAnchor: null,
+} as const;
 
 const SHARED_REPO_CANONICAL_KEY = "github.com/example/shared-repo";
 
@@ -61,6 +67,7 @@ function makeSidebarThreadSummary(
     branch: null,
     worktreePath: null,
     latestUserMessageAt: null,
+    ...HOMER_THREAD_LINKAGE,
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,

@@ -5,6 +5,12 @@ import { getLatestThreadForProject, sortThreads } from "./threadSort";
 
 const LOCAL_ENVIRONMENT_ID = EnvironmentId.make("environment-local");
 const PROJECT_ID = ProjectId.make("project-1");
+const HOMER_THREAD_LINKAGE = {
+  homerSourceThreadId: null,
+  homerSuccessorThreadId: null,
+  homerTransitionKind: null,
+  homerTaskAnchor: null,
+} as const;
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
   return {
@@ -26,6 +32,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     latestTurn: null,
     branch: null,
     worktreePath: null,
+    ...HOMER_THREAD_LINKAGE,
     turnDiffSummaries: [],
     activities: [],
     ...overrides,

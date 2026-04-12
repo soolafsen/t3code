@@ -163,6 +163,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           interactionMode: command.interactionMode,
           branch: command.branch,
           worktreePath: command.worktreePath,
+          homerSourceThreadId: command.homerSourceThreadId,
+          homerSuccessorThreadId: command.homerSuccessorThreadId,
+          homerTransitionKind: command.homerTransitionKind,
+          homerTaskAnchor: command.homerTaskAnchor,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
@@ -259,6 +263,18 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           ...(command.branch !== undefined ? { branch: command.branch } : {}),
           ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
+          ...(command.homerSourceThreadId !== undefined
+            ? { homerSourceThreadId: command.homerSourceThreadId }
+            : {}),
+          ...(command.homerSuccessorThreadId !== undefined
+            ? { homerSuccessorThreadId: command.homerSuccessorThreadId }
+            : {}),
+          ...(command.homerTransitionKind !== undefined
+            ? { homerTransitionKind: command.homerTransitionKind }
+            : {}),
+          ...(command.homerTaskAnchor !== undefined
+            ? { homerTaskAnchor: command.homerTaskAnchor }
+            : {}),
           updatedAt: occurredAt,
         },
       };
@@ -545,6 +561,33 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           text: command.delta,
           turnId: command.turnId ?? null,
           streaming: true,
+          createdAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.message.system.append": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.message-sent",
+        payload: {
+          threadId: command.threadId,
+          messageId: command.messageId,
+          role: "system",
+          text: command.text,
+          turnId: null,
+          streaming: false,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },

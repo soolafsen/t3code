@@ -64,6 +64,7 @@ const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan;
 const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
+    homerTaskAnchor: Schema.NullOr(Schema.fromJsonString(ProjectionThread.fields.homerTaskAnchor)),
   }),
 );
 const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
@@ -200,6 +201,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          homer_source_thread_id AS "homerSourceThreadId",
+          homer_successor_thread_id AS "homerSuccessorThreadId",
+          homer_transition_kind AS "homerTransitionKind",
+          homer_task_anchor_json AS "homerTaskAnchor",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -690,6 +695,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 interactionMode: row.interactionMode,
                 branch: row.branch,
                 worktreePath: row.worktreePath,
+                homerSourceThreadId: row.homerSourceThreadId,
+                homerSuccessorThreadId: row.homerSuccessorThreadId,
+                homerTransitionKind: row.homerTransitionKind,
+                homerTaskAnchor: row.homerTaskAnchor,
                 latestTurn: latestTurnByThread.get(row.threadId) ?? null,
                 createdAt: row.createdAt,
                 updatedAt: row.updatedAt,

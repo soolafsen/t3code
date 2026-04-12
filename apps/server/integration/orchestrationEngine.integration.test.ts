@@ -39,6 +39,12 @@ const PROJECT_ID = asProjectId("project-1");
 const THREAD_ID = ThreadId.make("thread-1");
 const FIXTURE_TURN_ID = "fixture-turn";
 const APPROVAL_REQUEST_ID = asApprovalRequestId("req-approval-1");
+const HOMER_THREAD_LINKAGE = {
+  homerSourceThreadId: null,
+  homerSuccessorThreadId: null,
+  homerTransitionKind: null,
+  homerTaskAnchor: null,
+} as const;
 type IntegrationProvider = ProviderKind;
 
 function nowIso() {
@@ -136,6 +142,7 @@ const seedProjectAndThread = (harness: OrchestrationIntegrationHarness) =>
       runtimeMode: "approval-required",
       branch: null,
       worktreePath: harness.workspaceDir,
+      ...HOMER_THREAD_LINKAGE,
       createdAt,
     });
   });
@@ -285,6 +292,7 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
           runtimeMode: "full-access",
           branch: null,
           worktreePath: harness.workspaceDir,
+          ...HOMER_THREAD_LINKAGE,
           createdAt,
         });
 

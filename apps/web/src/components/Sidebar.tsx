@@ -129,6 +129,7 @@ import {
   resolveProjectStatusIndicator,
   resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
+  resolveHomerSidebarLabel,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
   orderItemsByPreferredIds,
@@ -442,6 +443,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const pr = resolveThreadPr(thread.branch, gitStatus.data);
   const prStatus = prStatusIndicator(pr);
   const terminalStatus = terminalStatusFromRunningIds(runningTerminalIds);
+  const homerLabel = resolveHomerSidebarLabel(thread);
   const isConfirmingArchive = confirmingArchiveThreadKey === threadKey && !isThreadRunning;
   const threadMetaClassName = isConfirmingArchive
     ? "pointer-events-none opacity-0"
@@ -741,14 +743,27 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                     {jumpLabel}
                   </span>
                 ) : (
-                  <span
-                    className={`text-[10px] ${
-                      isHighlighted
-                        ? "text-foreground/72 dark:text-foreground/82"
-                        : "text-muted-foreground/40"
-                    }`}
-                  >
-                    {formatRelativeTimeLabel(thread.updatedAt ?? thread.createdAt)}
+                  <span className="inline-flex items-center gap-1">
+                    {homerLabel && (
+                      <span
+                        className={`rounded border px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide ${
+                          isHighlighted
+                            ? "border-border/70 text-foreground/72 dark:text-foreground/82"
+                            : "border-border/40 text-muted-foreground/70"
+                        }`}
+                      >
+                        {homerLabel}
+                      </span>
+                    )}
+                    <span
+                      className={`text-[10px] ${
+                        isHighlighted
+                          ? "text-foreground/72 dark:text-foreground/82"
+                          : "text-muted-foreground/40"
+                      }`}
+                    >
+                      {formatRelativeTimeLabel(thread.updatedAt ?? thread.createdAt)}
+                    </span>
                   </span>
                 )}
               </span>

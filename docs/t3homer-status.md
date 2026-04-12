@@ -200,4 +200,6 @@ That order keeps the next step visible and useful, then adds the more dangerous 
 - [docs/t3homer-mvp.md](./t3homer-mvp.md)
 - [docs/t3homer-successor-thread-beta-plan.md](./t3homer-successor-thread-beta-plan.md)
 - [docs/t3homer-successor-thread-kickoff-prompt.md](./t3homer-successor-thread-kickoff-prompt.md)
+- [docs/t3homer-checkpoint-reset-beta-plan.md](./t3homer-checkpoint-reset-beta-plan.md)
+- [docs/t3homer-checkpoint-reset-kickoff-prompt.md](./t3homer-checkpoint-reset-kickoff-prompt.md)
 - [docs/fork-features.md](./fork-features.md)

@@ -2,6 +2,12 @@ import { Effect, Option, Schema, SchemaIssue, Struct } from "effect";
 import { ClaudeModelOptions, CodexModelOptions } from "./model";
 import { RepositoryIdentity } from "./environment";
 import {
+  T3HomerExecutionPolicy,
+  T3HomerRecoveryMode,
+  T3HomerTaskAnchor,
+  T3HomerTransitionKind,
+} from "./t3homer";
+import {
   ApprovalRequestId,
   CheckpointRef,
   CommandId,
@@ -285,6 +291,18 @@ export const OrchestrationThread = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  homerSourceThreadId: Schema.NullOr(ThreadId).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  homerSuccessorThreadId: Schema.NullOr(ThreadId).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  homerTransitionKind: Schema.NullOr(T3HomerTransitionKind).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  homerTaskAnchor: Schema.NullOr(T3HomerTaskAnchor).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -347,6 +365,18 @@ const ThreadCreateCommand = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  homerSourceThreadId: Schema.NullOr(ThreadId).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  homerSuccessorThreadId: Schema.NullOr(ThreadId).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  homerTransitionKind: Schema.NullOr(T3HomerTransitionKind).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  homerTaskAnchor: Schema.NullOr(T3HomerTaskAnchor).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   createdAt: IsoDateTime,
 });
 
@@ -376,6 +406,10 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   modelSelection: Schema.optional(ModelSelection),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  homerSourceThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  homerSuccessorThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  homerTransitionKind: Schema.optional(Schema.NullOr(T3HomerTransitionKind)),
+  homerTaskAnchor: Schema.optional(Schema.NullOr(T3HomerTaskAnchor)),
 });
 
 const ThreadRuntimeModeSetCommand = Schema.Struct({
@@ -505,6 +539,8 @@ const ThreadHomerTriggerCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   reason: Schema.optional(TrimmedNonEmptyString),
+  executionPolicy: Schema.optional(T3HomerExecutionPolicy),
+  recoveryMode: Schema.optional(T3HomerRecoveryMode),
   createdAt: IsoDateTime,
 });
 
@@ -568,6 +604,15 @@ const ThreadMessageAssistantDeltaCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ThreadMessageSystemAppendCommand = Schema.Struct({
+  type: Schema.Literal("thread.message.system.append"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageId: MessageId,
+  text: Schema.String,
+  createdAt: IsoDateTime,
+});
+
 const ThreadMessageAssistantCompleteCommand = Schema.Struct({
   type: Schema.Literal("thread.message.assistant.complete"),
   commandId: CommandId,
@@ -618,6 +663,7 @@ const ThreadRevertCompleteCommand = Schema.Struct({
 const InternalOrchestrationCommand = Schema.Union([
   ThreadSessionSetCommand,
   ThreadMessageAssistantDeltaCommand,
+  ThreadMessageSystemAppendCommand,
   ThreadMessageAssistantCompleteCommand,
   ThreadProposedPlanUpsertCommand,
   ThreadTurnDiffCompleteCommand,
@@ -699,6 +745,18 @@ export const ThreadCreatedPayload = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  homerSourceThreadId: Schema.NullOr(ThreadId).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  homerSuccessorThreadId: Schema.NullOr(ThreadId).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  homerTransitionKind: Schema.NullOr(T3HomerTransitionKind).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  homerTaskAnchor: Schema.NullOr(T3HomerTaskAnchor).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -725,6 +783,10 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   modelSelection: Schema.optional(ModelSelection),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  homerSourceThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  homerSuccessorThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  homerTransitionKind: Schema.optional(Schema.NullOr(T3HomerTransitionKind)),
+  homerTaskAnchor: Schema.optional(Schema.NullOr(T3HomerTaskAnchor)),
   updatedAt: IsoDateTime,
 });
 

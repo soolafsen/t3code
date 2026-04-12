@@ -53,6 +53,12 @@ const asEventId = (value: string): EventId => EventId.make(value);
 const asMessageId = (value: string): MessageId => MessageId.make(value);
 const asThreadId = (value: string): ThreadId => ThreadId.make(value);
 const asTurnId = (value: string): TurnId => TurnId.make(value);
+const HOMER_THREAD_LINKAGE = {
+  homerSourceThreadId: null,
+  homerSuccessorThreadId: null,
+  homerTransitionKind: null,
+  homerTaskAnchor: null,
+} as const;
 
 type LegacyProviderRuntimeEvent = {
   readonly type: string;
@@ -253,6 +259,7 @@ describe("ProviderRuntimeIngestion", () => {
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: null,
+        ...HOMER_THREAD_LINKAGE,
         createdAt,
       }),
     );
@@ -776,6 +783,7 @@ describe("ProviderRuntimeIngestion", () => {
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: null,
+        ...HOMER_THREAD_LINKAGE,
         createdAt,
       }),
     );
@@ -811,6 +819,7 @@ describe("ProviderRuntimeIngestion", () => {
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: null,
+        ...HOMER_THREAD_LINKAGE,
         createdAt,
       }),
     );
@@ -963,6 +972,7 @@ describe("ProviderRuntimeIngestion", () => {
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: null,
+        ...HOMER_THREAD_LINKAGE,
         createdAt,
       }),
     );
@@ -1116,6 +1126,7 @@ describe("ProviderRuntimeIngestion", () => {
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: null,
+        ...HOMER_THREAD_LINKAGE,
         createdAt,
       }),
     );
@@ -1151,6 +1162,7 @@ describe("ProviderRuntimeIngestion", () => {
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: null,
+        ...HOMER_THREAD_LINKAGE,
         createdAt,
       }),
     );

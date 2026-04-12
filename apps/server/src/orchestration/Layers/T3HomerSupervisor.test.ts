@@ -122,8 +122,17 @@ async function waitForThread(
 }
 
 async function readThread(engine: OrchestrationEngineShape) {
+  return readThreadById(engine, asThreadId("thread-1"));
+}
+
+async function readThreadById(engine: OrchestrationEngineShape, threadId: ThreadId) {
   const readModel = await Effect.runPromise(engine.getReadModel());
-  return readModel.threads.find((entry) => entry.id === asThreadId("thread-1")) ?? null;
+  return readModel.threads.find((entry) => entry.id === threadId) ?? null;
+}
+
+async function readThreads(engine: OrchestrationEngineShape) {
+  const readModel = await Effect.runPromise(engine.getReadModel());
+  return readModel.threads;
 }
 
 describe("T3HomerSupervisor", () => {
@@ -206,6 +215,10 @@ describe("T3HomerSupervisor", () => {
         runtimeMode: "full-access",
         branch: null,
         worktreePath: null,
+        homerSourceThreadId: null,
+        homerSuccessorThreadId: null,
+        homerTransitionKind: null,
+        homerTaskAnchor: null,
         createdAt,
       }),
     );
@@ -381,9 +394,193 @@ describe("T3HomerSupervisor", () => {
 
     const activityKinds = thread.activities.map((activity) => activity.kind);
     expect(activityKinds).toContain(T3_HOMER_ACTIVITY_KINDS.supervising);
-    expect(activityKinds).toContain(T3_HOMER_ACTIVITY_KINDS.sessionEnded);
+    expect(activityKinds).toContain(T3_HOMER_ACTIVITY_KINDS.sessionInterrupted);
     expect(activityKinds).toContain(T3_HOMER_ACTIVITY_KINDS.handoffPrepared);
     expect(activityKinds).toContain(T3_HOMER_ACTIVITY_KINDS.sessionStarted);
+    expect(harness.provider.counts().stoppedCount).toBe(1);
+    expect(harness.provider.counts().startedCount).toBe(1);
+  });
+
+  it("spawns a successor thread on the second intervention and retires the old authority", async () => {
+    const harness = await createHarness();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-homer-authoritative-assignment"),
+        threadId: asThreadId("thread-1"),
+        message: {
+          messageId: asMessageId("msg-homer-assignment"),
+          role: "user",
+          text: [
+            "Your task is implement successor-thread beta for Homer.",
+            "",
+            "Start by reading:",
+            "- docs/t3homer-successor-thread-beta-plan.md",
+            "",
+            "Constraints:",
+            "- keep Homer deterministic and server-side",
+            "- keep restart in place",
+            "",
+            "Non-goals:",
+            "- no model-written handoffs",
+            "- no autonomous replanning",
+          ].join("\n"),
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: "2026-04-12T21:59:00.000Z",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-12T22:00:00.000Z",
+        reason: "First intervention should stay in place.",
+      }),
+    );
+
+    await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.activities.some(
+          (activity) => activity.kind === T3_HOMER_ACTIVITY_KINDS.sessionStarted,
+        ) && candidate.session?.status === "ready",
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-homer-status-check"),
+        threadId: asThreadId("thread-1"),
+        message: {
+          messageId: asMessageId("msg-homer-status-check"),
+          role: "user",
+          text: "Are you still working on the tasks?",
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: "2026-04-12T22:04:00.000Z",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-12T22:05:00.000Z",
+        reason: "Second intervention should promote to a successor thread.",
+      }),
+    );
+
+    const sourceThread = await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.homerSuccessorThreadId !== null &&
+        candidate.session?.status === "stopped" &&
+        candidate.activities.some(
+          (activity) => activity.kind === T3_HOMER_ACTIVITY_KINDS.successorThreadSpawned,
+        ),
+    );
+
+    const deadline = Date.now() + 2_000;
+    let successorThread: Awaited<ReturnType<typeof readThreads>>[number] | null = null;
+    while (Date.now() < deadline) {
+      const threads = await readThreads(harness.engine);
+      successorThread =
+        threads.find((thread) => thread.homerSourceThreadId === asThreadId("thread-1")) ?? null;
+      if (
+        successorThread &&
+        successorThread.session?.status === "ready" &&
+        successorThread.activities.some(
+          (activity) => activity.kind === T3_HOMER_ACTIVITY_KINDS.successorThreadCreated,
+        ) &&
+        successorThread.messages.some(
+          (message) =>
+            message.role === "user" && message.text.includes("T3 Homer successor-thread handoff."),
+        )
+      ) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    const successorHandoffMessage =
+      successorThread?.messages.find(
+        (message) =>
+          message.role === "user" && message.text.includes("T3 Homer successor-thread handoff."),
+      )?.text ?? null;
+
+    expect(sourceThread.homerTransitionKind).toBe("spawn_successor_thread");
+    expect(sourceThread.homerSuccessorThreadId).not.toBeNull();
+    expect(sourceThread.homerTaskAnchor?.objective).toContain(
+      "implement successor-thread beta for Homer",
+    );
+    expect(sourceThread.homerTaskAnchor?.sourceDocumentPaths).toContain(
+      "docs/t3homer-successor-thread-beta-plan.md",
+    );
+    expect(
+      sourceThread.activities.some(
+        (activity) => activity.kind === T3_HOMER_ACTIVITY_KINDS.handoffPrepared,
+      ),
+    ).toBe(true);
+    expect(successorThread).not.toBeNull();
+    expect(successorThread?.id).toBe(sourceThread.homerSuccessorThreadId);
+    expect(successorThread?.homerSourceThreadId).toBe(asThreadId("thread-1"));
+    expect(successorThread?.homerTransitionKind).toBe("spawn_successor_thread");
+    expect(successorThread?.homerTaskAnchor).toEqual(sourceThread.homerTaskAnchor);
+    expect(successorThread?.title).toBe("Homer Thread (Homer 2)");
+    expect(successorThread?.messages.some((message) => message.role === "system")).toBe(true);
+    expect(successorHandoffMessage).not.toBeNull();
+    expect(successorHandoffMessage).toContain(
+      "Objective: implement successor-thread beta for Homer.",
+    );
+    expect(successorHandoffMessage).toContain("docs/t3homer-successor-thread-beta-plan.md");
+    expect(successorHandoffMessage).toContain("keep Homer deterministic and server-side");
+    expect(successorHandoffMessage).toContain("no model-written handoffs");
+    expect(successorHandoffMessage).toContain(
+      "Treat short status/progress questions as status checks, not as new assignments.",
+    );
+    expect(successorHandoffMessage).not.toContain("Are you still working on the tasks?");
+    expect(harness.provider.counts().stoppedCount).toBe(2);
+    expect(harness.provider.counts().startedCount).toBe(2);
+    expect(harness.provider.counts().startedSessions.at(-1)?.threadId).toBe(successorThread?.id);
+  });
+
+  it("supports an explicit successor-thread manual trigger for dev validation", async () => {
+    const harness = await createHarness();
+
+    const result = await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-12T22:10:00.000Z",
+        reason: "Manual successor-thread validation.",
+        executionPolicy: "spawn_successor_thread",
+      }),
+    );
+
+    expect(result).toBe("triggered");
+
+    const sourceThread = await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.homerSuccessorThreadId !== null && candidate.session?.status === "stopped",
+    );
+    const successorThread = await readThreadById(
+      harness.engine,
+      sourceThread.homerSuccessorThreadId!,
+    );
+
+    expect(sourceThread.homerSuccessorThreadId).not.toBeNull();
+    expect(sourceThread.homerTransitionKind).toBe("spawn_successor_thread");
+    expect(successorThread?.homerSourceThreadId).toBe(sourceThread.id);
+    expect(
+      successorThread?.activities.some(
+        (activity) => activity.kind === T3_HOMER_ACTIVITY_KINDS.successorThreadCreated,
+      ),
+    ).toBe(true);
     expect(harness.provider.counts().stoppedCount).toBe(1);
     expect(harness.provider.counts().startedCount).toBe(1);
   });

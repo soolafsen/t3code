@@ -258,6 +258,26 @@ The successor thread should inherit only what is operationally necessary:
 
 Do not blindly copy arbitrary thread UI state.
 
+## Implementation Notes
+
+### Deterministic successor kickoff
+
+In the current architecture, a freshly started provider session does not reconstruct its working context from previously projected thread history alone.
+
+That means successor-thread promotion needs two deterministic inputs on the new thread:
+
+- a visible handoff record the user can inspect
+- an immediate kickoff prompt that tells the new session to continue from the handoff and repo state without asking for the original assignment again
+
+In this implementation, Homer also persists a compact task anchor on the thread itself. That anchor carries the authoritative objective, source-doc references, explicit constraints, non-goals, and branch expectation. Short status or progress questions are treated as status checks, not as authority changes, so the successor kickoff can keep the original assignment stable across long-running thread and session transitions.
+
+This still stays inside the beta constraints:
+
+- the handoff payload is server-built
+- no model-written handoff is introduced
+- no autonomous replanning is introduced
+- the successor thread starts with enough explicit context to continue reliably
+
 ## Demo Scenario
 
 The beta should be easy to show off with the current app.

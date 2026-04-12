@@ -63,6 +63,12 @@ import {
   type SessionCredentialChange,
 } from "./auth/Services/SessionCredentialService";
 import { respondToAuthError } from "./auth/http";
+const HOMER_THREAD_LINKAGE = {
+  homerSourceThreadId: null,
+  homerSuccessorThreadId: null,
+  homerTransitionKind: null,
+  homerTaskAnchor: null,
+} as const;
 
 function toAuthAccessStreamEvent(
   change: BootstrapCredentialChange | SessionCredentialChange,
@@ -373,6 +379,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 interactionMode: bootstrap.createThread.interactionMode,
                 branch: bootstrap.createThread.branch,
                 worktreePath: bootstrap.createThread.worktreePath,
+                ...HOMER_THREAD_LINKAGE,
                 createdAt: bootstrap.createThread.createdAt,
               });
               createdThread = true;
@@ -444,6 +451,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 threadId: command.threadId,
                 createdAt: command.createdAt,
                 ...(command.reason ? { reason: command.reason } : {}),
+                ...(command.executionPolicy ? { executionPolicy: command.executionPolicy } : {}),
               });
 
               if (result === "disabled") {

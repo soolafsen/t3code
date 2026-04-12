@@ -259,6 +259,10 @@ export function projectEvent(
             interactionMode: payload.interactionMode,
             branch: payload.branch,
             worktreePath: payload.worktreePath,
+            homerSourceThreadId: payload.homerSourceThreadId,
+            homerSuccessorThreadId: payload.homerSuccessorThreadId,
+            homerTransitionKind: payload.homerTransitionKind,
+            homerTaskAnchor: payload.homerTaskAnchor,
             latestTurn: null,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
@@ -325,6 +329,18 @@ export function projectEvent(
               : {}),
             ...(payload.branch !== undefined ? { branch: payload.branch } : {}),
             ...(payload.worktreePath !== undefined ? { worktreePath: payload.worktreePath } : {}),
+            ...(payload.homerSourceThreadId !== undefined
+              ? { homerSourceThreadId: payload.homerSourceThreadId }
+              : {}),
+            ...(payload.homerSuccessorThreadId !== undefined
+              ? { homerSuccessorThreadId: payload.homerSuccessorThreadId }
+              : {}),
+            ...(payload.homerTransitionKind !== undefined
+              ? { homerTransitionKind: payload.homerTransitionKind }
+              : {}),
+            ...(payload.homerTaskAnchor !== undefined
+              ? { homerTaskAnchor: payload.homerTaskAnchor }
+              : {}),
             updatedAt: payload.updatedAt,
           }),
         })),

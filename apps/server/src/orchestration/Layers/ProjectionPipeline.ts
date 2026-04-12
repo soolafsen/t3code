@@ -446,6 +446,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             interactionMode: event.payload.interactionMode,
             branch: event.payload.branch,
             worktreePath: event.payload.worktreePath,
+            homerSourceThreadId: event.payload.homerSourceThreadId,
+            homerSuccessorThreadId: event.payload.homerSuccessorThreadId,
+            homerTransitionKind: event.payload.homerTransitionKind,
+            homerTaskAnchor: event.payload.homerTaskAnchor,
             latestTurnId: null,
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
@@ -500,6 +504,18 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
             ...(event.payload.worktreePath !== undefined
               ? { worktreePath: event.payload.worktreePath }
+              : {}),
+            ...(event.payload.homerSourceThreadId !== undefined
+              ? { homerSourceThreadId: event.payload.homerSourceThreadId }
+              : {}),
+            ...(event.payload.homerSuccessorThreadId !== undefined
+              ? { homerSuccessorThreadId: event.payload.homerSuccessorThreadId }
+              : {}),
+            ...(event.payload.homerTransitionKind !== undefined
+              ? { homerTransitionKind: event.payload.homerTransitionKind }
+              : {}),
+            ...(event.payload.homerTaskAnchor !== undefined
+              ? { homerTaskAnchor: event.payload.homerTaskAnchor }
               : {}),
             updatedAt: event.payload.updatedAt,
           });

@@ -46,6 +46,12 @@ import { WorkspacePathsLive } from "../../workspace/Layers/WorkspacePaths.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.make(value);
 const asTurnId = (value: string): TurnId => TurnId.make(value);
+const HOMER_THREAD_LINKAGE = {
+  homerSourceThreadId: null,
+  homerSuccessorThreadId: null,
+  homerTransitionKind: null,
+  homerTaskAnchor: null,
+} as const;
 
 type LegacyProviderRuntimeEvent = {
   readonly type: string;
@@ -336,6 +342,7 @@ describe("CheckpointReactor", () => {
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: options?.threadWorktreePath ?? cwd,
+        ...HOMER_THREAD_LINKAGE,
         createdAt,
       }),
     );

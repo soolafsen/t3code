@@ -8,6 +8,12 @@ import { ProjectionProjectRepositoryLive } from "./ProjectionProjects.ts";
 import { ProjectionThreadRepositoryLive } from "./ProjectionThreads.ts";
 import { ProjectionProjectRepository } from "../Services/ProjectionProjects.ts";
 import { ProjectionThreadRepository } from "../Services/ProjectionThreads.ts";
+const HOMER_THREAD_LINKAGE = {
+  homerSourceThreadId: null,
+  homerSuccessorThreadId: null,
+  homerTransitionKind: null,
+  homerTaskAnchor: null,
+} as const;
 
 const projectionRepositoriesLayer = it.layer(
   Layer.mergeAll(
@@ -84,6 +90,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         interactionMode: "default",
         branch: null,
         worktreePath: null,
+        ...HOMER_THREAD_LINKAGE,
         latestTurnId: null,
         createdAt: "2026-03-24T00:00:00.000Z",
         updatedAt: "2026-03-24T00:00:00.000Z",

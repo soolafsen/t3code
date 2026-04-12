@@ -112,6 +112,12 @@ const defaultModelSelection = {
   provider: "codex",
   model: "gpt-5-codex",
 } as const;
+const HOMER_THREAD_LINKAGE = {
+  homerSourceThreadId: null,
+  homerSuccessorThreadId: null,
+  homerTransitionKind: null,
+  homerTaskAnchor: null,
+} as const;
 const testEnvironmentDescriptor = {
   environmentId: EnvironmentId.make("environment-test"),
   label: "Test environment",
@@ -151,6 +157,7 @@ const makeDefaultOrchestrationReadModel = () => {
         runtimeMode: "full-access" as const,
         branch: null,
         worktreePath: null,
+        ...HOMER_THREAD_LINKAGE,
         createdAt: now,
         updatedAt: now,
         archivedAt: null,
@@ -2718,6 +2725,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             runtimeMode: "full-access" as const,
             branch: null,
             worktreePath: null,
+            ...HOMER_THREAD_LINKAGE,
             createdAt: now,
             updatedAt: now,
             archivedAt: null,
@@ -2842,6 +2850,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             commandId: CommandId.make("cmd-homer-trigger"),
             threadId: ThreadId.make("thread-1"),
             reason: "Manual Homer test requested from the dev UI.",
+            executionPolicy: "spawn_successor_thread",
             createdAt,
           }),
         ),
@@ -2853,6 +2862,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           threadId: ThreadId.make("thread-1"),
           createdAt,
           reason: "Manual Homer test requested from the dev UI.",
+          executionPolicy: "spawn_successor_thread",
         },
       ]);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),

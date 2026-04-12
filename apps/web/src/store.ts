@@ -214,6 +214,10 @@ function mapThread(thread: OrchestrationThread, environmentId: EnvironmentId): T
     pendingSourceProposedPlan: thread.latestTurn?.sourceProposedPlan,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    homerSourceThreadId: thread.homerSourceThreadId,
+    homerSuccessorThreadId: thread.homerSuccessorThreadId,
+    homerTransitionKind: thread.homerTransitionKind,
+    homerTaskAnchor: thread.homerTaskAnchor,
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
     activities: thread.activities.map((activity) => ({ ...activity })),
   };
@@ -235,6 +239,10 @@ function toThreadShell(thread: Thread): ThreadShell {
     updatedAt: thread.updatedAt,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    homerSourceThreadId: thread.homerSourceThreadId,
+    homerSuccessorThreadId: thread.homerSuccessorThreadId,
+    homerTransitionKind: thread.homerTransitionKind,
+    homerTaskAnchor: thread.homerTaskAnchor,
   };
 }
 
@@ -274,6 +282,10 @@ function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
     latestTurn: thread.latestTurn,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    homerSourceThreadId: thread.homerSourceThreadId,
+    homerSuccessorThreadId: thread.homerSuccessorThreadId,
+    homerTransitionKind: thread.homerTransitionKind,
+    homerTaskAnchor: thread.homerTaskAnchor,
     latestUserMessageAt: getLatestUserMessageAt(thread.messages),
     hasPendingApprovals: derivePendingApprovals(thread.activities).length > 0,
     hasPendingUserInput: derivePendingUserInputs(thread.activities).length > 0,
@@ -300,6 +312,10 @@ function sidebarThreadSummariesEqual(
     left.latestTurn === right.latestTurn &&
     left.branch === right.branch &&
     left.worktreePath === right.worktreePath &&
+    left.homerSourceThreadId === right.homerSourceThreadId &&
+    left.homerSuccessorThreadId === right.homerSuccessorThreadId &&
+    left.homerTransitionKind === right.homerTransitionKind &&
+    left.homerTaskAnchor === right.homerTaskAnchor &&
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
@@ -323,7 +339,11 @@ function threadShellsEqual(left: ThreadShell | undefined, right: ThreadShell): b
     left.archivedAt === right.archivedAt &&
     left.updatedAt === right.updatedAt &&
     left.branch === right.branch &&
-    left.worktreePath === right.worktreePath
+    left.worktreePath === right.worktreePath &&
+    left.homerSourceThreadId === right.homerSourceThreadId &&
+    left.homerSuccessorThreadId === right.homerSuccessorThreadId &&
+    left.homerTransitionKind === right.homerTransitionKind &&
+    left.homerTaskAnchor === right.homerTaskAnchor
   );
 }
 
@@ -1090,6 +1110,10 @@ function applyEnvironmentOrchestrationEvent(
           interactionMode: event.payload.interactionMode,
           branch: event.payload.branch,
           worktreePath: event.payload.worktreePath,
+          homerSourceThreadId: event.payload.homerSourceThreadId,
+          homerSuccessorThreadId: event.payload.homerSuccessorThreadId,
+          homerTransitionKind: event.payload.homerTransitionKind,
+          homerTaskAnchor: event.payload.homerTaskAnchor,
           latestTurn: null,
           createdAt: event.payload.createdAt,
           updatedAt: event.payload.updatedAt,
@@ -1133,6 +1157,18 @@ function applyEnvironmentOrchestrationEvent(
         ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
         ...(event.payload.worktreePath !== undefined
           ? { worktreePath: event.payload.worktreePath }
+          : {}),
+        ...(event.payload.homerSourceThreadId !== undefined
+          ? { homerSourceThreadId: event.payload.homerSourceThreadId }
+          : {}),
+        ...(event.payload.homerSuccessorThreadId !== undefined
+          ? { homerSuccessorThreadId: event.payload.homerSuccessorThreadId }
+          : {}),
+        ...(event.payload.homerTransitionKind !== undefined
+          ? { homerTransitionKind: event.payload.homerTransitionKind }
+          : {}),
+        ...(event.payload.homerTaskAnchor !== undefined
+          ? { homerTaskAnchor: event.payload.homerTaskAnchor }
           : {}),
         updatedAt: event.payload.updatedAt,
       }));

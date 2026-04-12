@@ -30,6 +30,12 @@ import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./t
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
 const remoteEnvironmentId = EnvironmentId.make("environment-remote");
+const HOMER_THREAD_LINKAGE = {
+  homerSourceThreadId: null,
+  homerSuccessorThreadId: null,
+  homerTransitionKind: null,
+  homerTaskAnchor: null,
+} as const;
 
 function withActiveEnvironmentState(
   environmentState: EnvironmentState,
@@ -83,6 +89,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     latestTurn: null,
     branch: null,
     worktreePath: null,
+    ...HOMER_THREAD_LINKAGE,
     ...overrides,
   };
 }
@@ -128,6 +135,10 @@ function makeState(thread: Thread): AppState {
         updatedAt: thread.updatedAt,
         branch: thread.branch,
         worktreePath: thread.worktreePath,
+        homerSourceThreadId: thread.homerSourceThreadId,
+        homerSuccessorThreadId: thread.homerSuccessorThreadId,
+        homerTransitionKind: thread.homerTransitionKind,
+        homerTaskAnchor: thread.homerTaskAnchor,
       },
     },
     threadSessionById: {
@@ -382,6 +393,7 @@ function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"
     interactionMode: DEFAULT_INTERACTION_MODE,
     branch: null,
     worktreePath: null,
+    ...HOMER_THREAD_LINKAGE,
     latestTurn: null,
     createdAt: "2026-02-27T00:00:00.000Z",
     updatedAt: "2026-02-27T00:00:00.000Z",
@@ -494,6 +506,25 @@ describe("store read model sync", () => {
     );
 
     expect(localEnvironmentStateOf(next).bootstrapComplete).toBe(true);
+  });
+
+  it("preserves Homer linkage fields from the server snapshot", () => {
+    const initialState = makeEmptyState();
+    const readModel = makeReadModel(
+      makeReadModelThread({
+        id: ThreadId.make("thread-linked"),
+        homerSourceThreadId: ThreadId.make("thread-source"),
+        homerSuccessorThreadId: null,
+        homerTransitionKind: "spawn_successor_thread",
+      }),
+    );
+
+    const next = syncServerReadModel(initialState, readModel, localEnvironmentId);
+    const thread = threadsOf(next).find((entry) => entry.id === ThreadId.make("thread-linked"));
+
+    expect(thread?.homerSourceThreadId).toBe(ThreadId.make("thread-source"));
+    expect(thread?.homerSuccessorThreadId).toBeNull();
+    expect(thread?.homerTransitionKind).toBe("spawn_successor_thread");
   });
 
   it("preserves claude model slugs without an active session", () => {
@@ -779,6 +810,7 @@ describe("incremental orchestration updates", () => {
         interactionMode: DEFAULT_INTERACTION_MODE,
         branch: null,
         worktreePath: null,
+        ...HOMER_THREAD_LINKAGE,
         createdAt: "2026-02-27T00:00:01.000Z",
         updatedAt: "2026-02-27T00:00:01.000Z",
       }),
@@ -791,6 +823,28 @@ describe("incremental orchestration updates", () => {
     expect(localEnvironmentStateOf(next).threadIdsByProjectId[recreatedProjectId]).toEqual([
       threadId,
     ]);
+  });
+
+  it("updates thread linkage fields from thread.meta-updated events", () => {
+    const thread = makeThread({
+      id: ThreadId.make("thread-source"),
+    });
+    const state = makeState(thread);
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.meta-updated", {
+        threadId: thread.id,
+        homerSourceThreadId: null,
+        homerSuccessorThreadId: ThreadId.make("thread-successor"),
+        homerTransitionKind: "spawn_successor_thread",
+        updatedAt: "2026-02-27T00:00:05.000Z",
+      }),
+      localEnvironmentId,
+    );
+
+    expect(threadsOf(next)[0]?.homerSuccessorThreadId).toBe(ThreadId.make("thread-successor"));
+    expect(threadsOf(next)[0]?.homerTransitionKind).toBe("spawn_successor_thread");
   });
 
   it("updates only the affected thread for message events", () => {

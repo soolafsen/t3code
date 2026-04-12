@@ -19,6 +19,12 @@ import {
 } from "./commandInvariants.ts";
 
 const now = new Date().toISOString();
+const HOMER_THREAD_LINKAGE = {
+  homerSourceThreadId: null,
+  homerSuccessorThreadId: null,
+  homerTransitionKind: null,
+  homerTaskAnchor: null,
+} as const;
 
 const readModel: OrchestrationReadModel = {
   snapshotSequence: 2,
@@ -64,6 +70,7 @@ const readModel: OrchestrationReadModel = {
       runtimeMode: "full-access",
       branch: null,
       worktreePath: null,
+      ...HOMER_THREAD_LINKAGE,
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
@@ -87,6 +94,7 @@ const readModel: OrchestrationReadModel = {
       runtimeMode: "full-access",
       branch: null,
       worktreePath: null,
+      ...HOMER_THREAD_LINKAGE,
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
@@ -164,6 +172,7 @@ describe("commandInvariants", () => {
           runtimeMode: "full-access",
           branch: null,
           worktreePath: null,
+          ...HOMER_THREAD_LINKAGE,
           createdAt: now,
         },
         threadId: ThreadId.make("thread-3"),
@@ -188,6 +197,7 @@ describe("commandInvariants", () => {
             runtimeMode: "full-access",
             branch: null,
             worktreePath: null,
+            ...HOMER_THREAD_LINKAGE,
             createdAt: now,
           },
           threadId: ThreadId.make("thread-1"),

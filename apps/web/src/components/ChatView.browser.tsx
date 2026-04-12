@@ -70,6 +70,12 @@ const PROJECT_KEY = scopedProjectKey(scopeProjectRef(LOCAL_ENVIRONMENT_ID, PROJE
 const NOW_ISO = "2026-03-04T12:00:00.000Z";
 const BASE_TIME_MS = Date.parse(NOW_ISO);
 const ATTACHMENT_SVG = "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'></svg>";
+const HOMER_THREAD_LINKAGE = {
+  homerSourceThreadId: null,
+  homerSuccessorThreadId: null,
+  homerTransitionKind: null,
+  homerTaskAnchor: null,
+} as const;
 
 interface TestFixture {
   snapshot: OrchestrationReadModel;
@@ -316,6 +322,7 @@ function createSnapshotForTargetUser(options: {
         runtimeMode: "full-access",
         branch: "main",
         worktreePath: null,
+        ...HOMER_THREAD_LINKAGE,
         latestTurn: null,
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
@@ -381,6 +388,7 @@ function addThreadToSnapshot(
         runtimeMode: "full-access",
         branch: "main",
         worktreePath: null,
+        ...HOMER_THREAD_LINKAGE,
         latestTurn: null,
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
@@ -428,6 +436,7 @@ function createThreadCreatedEvent(threadId: ThreadId, sequence: number): Orchest
       interactionMode: "default",
       branch: "main",
       worktreePath: null,
+      ...HOMER_THREAD_LINKAGE,
       createdAt: NOW_ISO,
       updatedAt: NOW_ISO,
     },
@@ -690,6 +699,7 @@ function createSnapshotWithSecondaryProject(options?: {
           runtimeMode: "full-access",
           branch: "release/docs-portal",
           worktreePath: null,
+          ...HOMER_THREAD_LINKAGE,
           latestTurn: null,
           createdAt: isoAt(30),
           updatedAt: isoAt(31),
@@ -722,6 +732,7 @@ function createSnapshotWithSecondaryProject(options?: {
           runtimeMode: "full-access",
           branch: "release/docs-archive",
           worktreePath: null,
+          ...HOMER_THREAD_LINKAGE,
           latestTurn: null,
           createdAt: isoAt(24),
           updatedAt: isoAt(25),
@@ -3248,6 +3259,103 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await expect.element(confirmButton).toBeVisible();
     } finally {
       localStorage.removeItem("t3code:client-settings:v1");
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows separate Homer restart and successor controls and dispatches the successor policy", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-homer-successor-test" as MessageId,
+        targetText: "manual successor flow target",
+      }),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          settings: {
+            ...nextFixture.serverConfig.settings,
+            homer: {
+              ...nextFixture.serverConfig.settings.homer,
+              enabled: true,
+            },
+          },
+        };
+      },
+      resolveRpc: (request) => {
+        if (request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return { sequence: fixture.snapshot.snapshotSequence + 1 };
+        }
+        return resolveWsRpc(request);
+      },
+    });
+
+    try {
+      await expect.element(page.getByRole("button", { name: "Test Homer" })).toBeInTheDocument();
+      await expect
+        .element(page.getByRole("button", { name: "Test Successor" }))
+        .toBeInTheDocument();
+
+      await page.getByRole("button", { name: "Test Successor" }).click();
+
+      await vi.waitFor(
+        () => {
+          expect(
+            wsRequests.some(
+              (request) =>
+                request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+                request.type === "thread.homer.trigger" &&
+                request.threadId === THREAD_ID &&
+                request.executionPolicy === "spawn_successor_thread",
+            ),
+          ).toBe(true);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows successor linkage in the thread header", async () => {
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-homer-linkage" as MessageId,
+      targetText: "linked thread header target",
+    });
+    const successorThreadId = "thread-successor-browser" as ThreadId;
+    const snapshotWithSuccessor = addThreadToSnapshot(snapshot, successorThreadId);
+    const linkedSnapshot = {
+      ...snapshotWithSuccessor,
+      threads: snapshotWithSuccessor.threads.map((thread) => {
+        if (thread.id === THREAD_ID) {
+          return Object.assign({}, thread, {
+            homerSuccessorThreadId: successorThreadId,
+            homerTransitionKind: "spawn_successor_thread" as const,
+            homerTaskAnchor: thread.homerTaskAnchor,
+          });
+        }
+        if (thread.id === successorThreadId) {
+          return Object.assign({}, thread, {
+            title: "Browser test thread (Homer 2)",
+            homerSourceThreadId: THREAD_ID,
+            homerTransitionKind: "spawn_successor_thread" as const,
+            homerTaskAnchor: thread.homerTaskAnchor,
+          });
+        }
+        return thread;
+      }),
+    };
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: linkedSnapshot,
+    });
+
+    try {
+      await expect
+        .element(page.getByRole("button", { name: "Superseded by Browser test thread (Homer 2)" }))
+        .toBeInTheDocument();
+    } finally {
       await mounted.cleanup();
     }
   });

@@ -733,12 +733,13 @@ export default function ChatView(props: ChatViewProps) {
   const storeNewTerminal = useTerminalStateStore((s) => s.newTerminal);
   const storeSetActiveTerminal = useTerminalStateStore((s) => s.setActiveTerminal);
   const storeCloseTerminal = useTerminalStateStore((s) => s.closeTerminal);
-  const serverThreadKeys = useStore(
-    useShallow((state) =>
-      selectThreadsAcrossEnvironments(state).map((thread) =>
+  const allThreadsAcrossEnvironments = useStore(useShallow(selectThreadsAcrossEnvironments));
+  const serverThreadKeys = useMemo(
+    () =>
+      allThreadsAcrossEnvironments.map((thread) =>
         scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
       ),
-    ),
+    [allThreadsAcrossEnvironments],
   );
   const storeServerTerminalLaunchContext = useTerminalStateStore(
     (s) => s.terminalLaunchContextByThreadKey[scopedThreadKey(routeThreadRef)] ?? null,
@@ -803,6 +804,24 @@ export default function ChatView(props: ChatViewProps) {
     [activeThread],
   );
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
+  const homerSourceThread = useMemo(
+    () =>
+      activeThread?.homerSourceThreadId
+        ? (allThreadsAcrossEnvironments.find(
+            (thread) => thread.id === activeThread.homerSourceThreadId,
+          ) ?? null)
+        : null,
+    [activeThread?.homerSourceThreadId, allThreadsAcrossEnvironments],
+  );
+  const homerSuccessorThread = useMemo(
+    () =>
+      activeThread?.homerSuccessorThreadId
+        ? (allThreadsAcrossEnvironments.find(
+            (thread) => thread.id === activeThread.homerSuccessorThreadId,
+          ) ?? null)
+        : null,
+    [activeThread?.homerSuccessorThreadId, allThreadsAcrossEnvironments],
+  );
   const existingOpenTerminalThreadKeys = useMemo(() => {
     const existingThreadKeys = new Set<string>([...serverThreadKeys, ...draftThreadKeys]);
     return openTerminalThreadKeys.filter((nextThreadKey) => existingThreadKeys.has(nextThreadKey));
@@ -1493,46 +1512,78 @@ export default function ChatView(props: ChatViewProps) {
     });
   }, [diffOpen, environmentId, isServerThread, navigate, onDiffPanelOpen, threadId]);
 
-  const onTriggerHomerTest = useCallback(() => {
-    if (!activeThread || !isServerThread || isTriggeringHomerTest) {
-      return;
-    }
-
-    const api = readEnvironmentApi(environmentId);
-    if (!api) {
-      return;
-    }
-    const createdAt = new Date().toISOString();
-    setIsTriggeringHomerTest(true);
-    void api.orchestration
-      .dispatchCommand({
-        type: "thread.homer.trigger",
-        commandId: newCommandId(),
-        threadId: activeThread.id,
-        reason: "Manual Homer test requested from the dev UI.",
-        createdAt,
-      })
-      .then(() => {
-        toastManager.add({
-          type: "success",
-          title: "Homer test started",
-          description: "Watch the thread activity and footer counts for the forced handoff.",
-        });
-      })
-      .catch((error: unknown) => {
-        toastManager.add({
-          type: "error",
-          title: "Could not trigger Homer test",
-          description:
-            error instanceof Error
-              ? error.message
-              : "An unknown error occurred while testing Homer.",
-        });
-      })
-      .finally(() => {
-        setIsTriggeringHomerTest(false);
+  const navigateToLinkedThread = useCallback(
+    (linkedThread: { environmentId: EnvironmentId; id: ThreadId } | null) => {
+      if (!linkedThread) {
+        return;
+      }
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: {
+          environmentId: linkedThread.environmentId,
+          threadId: linkedThread.id,
+        },
       });
-  }, [activeThread, environmentId, isServerThread, isTriggeringHomerTest]);
+    },
+    [navigate],
+  );
+
+  const triggerHomerTest = useCallback(
+    (executionPolicy?: "spawn_successor_thread") => {
+      if (!activeThread || !isServerThread || isTriggeringHomerTest) {
+        return;
+      }
+
+      const api = readEnvironmentApi(environmentId);
+      if (!api) {
+        return;
+      }
+      const createdAt = new Date().toISOString();
+      setIsTriggeringHomerTest(true);
+      void api.orchestration
+        .dispatchCommand({
+          type: "thread.homer.trigger",
+          commandId: newCommandId(),
+          threadId: activeThread.id,
+          reason: "Manual Homer test requested from the dev UI.",
+          ...(executionPolicy ? { executionPolicy } : {}),
+          createdAt,
+        })
+        .then(() => {
+          toastManager.add({
+            type: "success",
+            title: executionPolicy ? "Successor-thread test started" : "Homer test started",
+            description: executionPolicy
+              ? "Watch the current thread activity and the sidebar for the Homer successor thread."
+              : "Watch the thread activity and footer counts for the forced handoff.",
+          });
+        })
+        .catch((error: unknown) => {
+          toastManager.add({
+            type: "error",
+            title: executionPolicy
+              ? "Could not trigger successor-thread test"
+              : "Could not trigger Homer test",
+            description:
+              error instanceof Error
+                ? error.message
+                : "An unknown error occurred while testing Homer.",
+          });
+        })
+        .finally(() => {
+          setIsTriggeringHomerTest(false);
+        });
+    },
+    [activeThread, environmentId, isServerThread, isTriggeringHomerTest],
+  );
+
+  const onTriggerHomerTest = useCallback(() => {
+    triggerHomerTest();
+  }, [triggerHomerTest]);
+
+  const onTriggerHomerSuccessorTest = useCallback(() => {
+    triggerHomerTest("spawn_successor_thread");
+  }, [triggerHomerTest]);
 
   const envLocked = Boolean(
     activeThread &&
@@ -3161,6 +3212,10 @@ export default function ChatView(props: ChatViewProps) {
         interactionMode: "default",
         branch: activeThread.branch,
         worktreePath: activeThread.worktreePath,
+        homerSourceThreadId: null,
+        homerSuccessorThreadId: null,
+        homerTransitionKind: null,
+        homerTaskAnchor: null,
         createdAt,
       })
       .then(() => {
@@ -3344,6 +3399,8 @@ export default function ChatView(props: ChatViewProps) {
           activeThreadId={activeThread.id}
           {...(routeKind === "draft" && draftId ? { draftId } : {})}
           activeThreadTitle={activeThread.title}
+          homerSourceThreadLabel={homerSourceThread?.title ?? null}
+          homerSuccessorThreadLabel={homerSuccessorThread?.title ?? null}
           activeProjectName={activeProject?.name}
           isGitRepo={isGitRepo}
           openInCwd={gitCwd}
@@ -3366,6 +3423,9 @@ export default function ChatView(props: ChatViewProps) {
           onUpdateProjectScript={updateProjectScript}
           onDeleteProjectScript={deleteProjectScript}
           onTriggerHomerTest={onTriggerHomerTest}
+          onTriggerHomerSuccessorTest={onTriggerHomerSuccessorTest}
+          onNavigateToHomerSourceThread={() => navigateToLinkedThread(homerSourceThread)}
+          onNavigateToHomerSuccessorThread={() => navigateToLinkedThread(homerSuccessorThread)}
           onToggleTerminal={toggleTerminalVisibility}
           onToggleDiff={onToggleDiff}
         />
