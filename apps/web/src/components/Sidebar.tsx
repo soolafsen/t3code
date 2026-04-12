@@ -168,6 +168,33 @@ const SIDEBAR_LIST_ANIMATION_OPTIONS = {
 const EMPTY_THREAD_JUMP_LABELS = new Map<string, string>();
 const HOMER_ACTIVITY_KIND_SET = new Set<string>(Object.values(T3_HOMER_ACTIVITY_KINDS));
 
+function readHomerExecutionPolicy(
+  payload: unknown,
+): "restart_in_place" | "spawn_successor_thread" | null {
+  if (payload === null || typeof payload !== "object") {
+    return null;
+  }
+
+  const executionPolicy = (payload as { executionPolicy?: unknown }).executionPolicy;
+  return executionPolicy === "restart_in_place" || executionPolicy === "spawn_successor_thread"
+    ? executionPolicy
+    : null;
+}
+
+function shouldCountHomerActivity(createdAt: string, statsResetAt: string | null): boolean {
+  if (statsResetAt === null) {
+    return true;
+  }
+
+  const activityTime = Date.parse(createdAt);
+  const resetTime = Date.parse(statsResetAt);
+  if (Number.isNaN(activityTime) || Number.isNaN(resetTime)) {
+    return true;
+  }
+
+  return activityTime > resetTime;
+}
+
 function threadJumpLabelMapsEqual(
   left: ReadonlyMap<string, string>,
   right: ReadonlyMap<string, string>,
@@ -2030,9 +2057,12 @@ const HomerStatusPill = memo(function HomerStatusPill() {
   const settings = useSettings();
   const threads = useStore(useShallow(selectThreadsAcrossEnvironments));
   const navigate = useNavigate();
+  const homerStatsResetAt = settings.homer.statsResetAt;
 
   const homerStats = useMemo(() => {
     let started = 0;
+    let restarts = 0;
+    let successors = 0;
     let ended = 0;
     let interrupted = 0;
     let escalated = 0;
@@ -2042,9 +2072,20 @@ const HomerStatusPill = memo(function HomerStatusPill() {
         if (!HOMER_ACTIVITY_KIND_SET.has(activity.kind)) {
           continue;
         }
+        if (!shouldCountHomerActivity(activity.createdAt, homerStatsResetAt)) {
+          continue;
+        }
         switch (activity.kind) {
           case T3_HOMER_ACTIVITY_KINDS.sessionStarted:
             started += 1;
+            switch (readHomerExecutionPolicy(activity.payload)) {
+              case "restart_in_place":
+                restarts += 1;
+                break;
+              case "spawn_successor_thread":
+                successors += 1;
+                break;
+            }
             break;
           case T3_HOMER_ACTIVITY_KINDS.sessionEnded:
             ended += 1;
@@ -2059,8 +2100,8 @@ const HomerStatusPill = memo(function HomerStatusPill() {
       }
     }
 
-    return { started, ended, interrupted, escalated };
-  }, [threads]);
+    return { started, restarts, successors, ended, interrupted, escalated };
+  }, [homerStatsResetAt, threads]);
 
   const isEnabled = settings.homer.enabled;
   const handoffCount = homerStats.started;
@@ -2072,9 +2113,12 @@ const HomerStatusPill = memo(function HomerStatusPill() {
   const detail = isEnabled
     ? [
         `${homerStats.started} started`,
+        `${homerStats.restarts} restarts`,
+        `${homerStats.successors} successors`,
         `${homerStats.ended} ended`,
         `${homerStats.interrupted} interrupted`,
         `${homerStats.escalated} escalated`,
+        ...(homerStatsResetAt ? [`reset ${formatRelativeTimeLabel(homerStatsResetAt)}`] : []),
       ].join(" · ")
     : "Enable Homer in Settings to let it supervise sessions in the background.";
 
@@ -2099,7 +2143,7 @@ const HomerStatusPill = memo(function HomerStatusPill() {
         <span className="font-medium text-foreground">{isEnabled ? "Homer on" : "Homer off"}</span>
         <span className="truncate">
           {isEnabled
-            ? `${handoffCount} handoff${handoffCount === 1 ? "" : "s"}`
+            ? `${handoffCount} handoff${handoffCount === 1 ? "" : "s"} R ${homerStats.restarts} : S ${homerStats.successors}`
             : "background supervision disabled"}
         </span>
       </TooltipTrigger>

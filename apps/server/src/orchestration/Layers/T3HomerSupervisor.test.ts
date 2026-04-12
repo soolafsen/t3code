@@ -172,6 +172,7 @@ describe("T3HomerSupervisor", () => {
         makeTestServerSettingsLayer({
           homer: {
             enabled: options?.homerEnabled ?? true,
+            statsResetAt: null,
           },
         }),
       ),
