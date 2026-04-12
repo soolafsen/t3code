@@ -28,7 +28,10 @@ import type {
   DesktopUpdateCheckResult,
   DesktopUpdateState,
 } from "@t3tools/contracts";
+import { ClientSettingsSchema } from "@t3tools/contracts";
+import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import { autoUpdater } from "electron-updater";
+import * as Schema from "effect/Schema";
 
 import type { ContextMenuItem } from "@t3tools/contracts";
 import { RotatingFileSink } from "@t3tools/shared/logging";
@@ -67,6 +70,11 @@ import {
   reduceDesktopUpdateStateOnUpdateAvailable,
 } from "./updateMachine";
 import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runtimeArch";
+import {
+  applyDesktopZoomFactor,
+  getDesktopZoomShortcutAction,
+  getNextDesktopZoomFactor,
+} from "./windowZoom";
 
 syncShellEnvironment();
 
@@ -1387,7 +1395,9 @@ function registerIpcHandlers(): void {
       throw new Error("Invalid client settings payload.");
     }
 
-    writeClientSettings(CLIENT_SETTINGS_PATH, rawSettings as ClientSettings);
+    const settings = Schema.decodeUnknownSync(ClientSettingsSchema)(rawSettings) as ClientSettings;
+    writePersistedClientSettings(settings);
+    applyDesktopZoomToAllWindows(settings.desktopZoomFactor);
   });
 
   ipcMain.removeHandler(GET_SAVED_ENVIRONMENT_REGISTRY_CHANNEL);
@@ -1645,6 +1655,39 @@ function getIconOption(): { icon: string } | Record<string, never> {
   return iconPath ? { icon: iconPath } : {};
 }
 
+function readPersistedClientSettings(): ClientSettings {
+  return readClientSettings(CLIENT_SETTINGS_PATH) ?? DEFAULT_CLIENT_SETTINGS;
+}
+
+function writePersistedClientSettings(settings: ClientSettings): void {
+  writeClientSettings(CLIENT_SETTINGS_PATH, settings);
+}
+
+function applyPersistedDesktopZoom(window: BrowserWindow): void {
+  applyDesktopZoomFactor(window.webContents, readPersistedClientSettings().desktopZoomFactor);
+}
+
+function applyDesktopZoomToAllWindows(rawZoomFactor: unknown): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    applyDesktopZoomFactor(window.webContents, rawZoomFactor);
+  }
+}
+
+function updateDesktopZoom(action: "in" | "out" | "reset"): void {
+  const currentSettings = readPersistedClientSettings();
+  const nextZoomFactor = getNextDesktopZoomFactor(currentSettings.desktopZoomFactor, action);
+  if (nextZoomFactor === currentSettings.desktopZoomFactor) {
+    applyDesktopZoomToAllWindows(nextZoomFactor);
+    return;
+  }
+
+  writePersistedClientSettings({
+    ...currentSettings,
+    desktopZoomFactor: nextZoomFactor,
+  });
+  applyDesktopZoomToAllWindows(nextZoomFactor);
+}
+
 function getInitialWindowBackgroundColor(): string {
   return nativeTheme.shouldUseDarkColors ? "#0a0a0a" : "#ffffff";
 }
@@ -1668,6 +1711,17 @@ function createWindow(): BrowserWindow {
       nodeIntegration: false,
       sandbox: true,
     },
+  });
+  applyPersistedDesktopZoom(window);
+
+  window.webContents.on("before-input-event", (event, input) => {
+    const zoomAction = getDesktopZoomShortcutAction(input);
+    if (!zoomAction) {
+      return;
+    }
+
+    event.preventDefault();
+    updateDesktopZoom(zoomAction);
   });
 
   window.webContents.on("context-menu", (event, params) => {

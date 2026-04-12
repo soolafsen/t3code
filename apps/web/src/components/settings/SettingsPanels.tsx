@@ -18,7 +18,12 @@ import {
   type ServerProviderModel,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime";
-import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
+import {
+  DEFAULT_DESKTOP_ZOOM_FACTOR,
+  DEFAULT_UNIFIED_SETTINGS,
+  DESKTOP_ZOOM_FACTOR_VALUES,
+  type DesktopZoomFactor,
+} from "@t3tools/contracts/settings";
 import { normalizeModelSlug } from "@t3tools/shared/model";
 import { Equal } from "effect";
 import { APP_VERSION } from "../../branding";
@@ -97,6 +102,14 @@ const TIMESTAMP_FORMAT_LABELS = {
   "12-hour": "12-hour",
   "24-hour": "24-hour",
 } as const;
+
+const DESKTOP_ZOOM_FACTOR_OPTIONS: ReadonlyArray<{
+  readonly value: DesktopZoomFactor;
+  readonly label: string;
+}> = DESKTOP_ZOOM_FACTOR_VALUES.map((value) => ({
+  value,
+  label: `${Math.round(value * 100)}%`,
+}));
 
 type InstallProviderSettings = {
   provider: ProviderKind;
@@ -365,6 +378,9 @@ export function useSettingsRestore(onRestored?: () => void) {
   const changedSettingLabels = useMemo(
     () => [
       ...(theme !== "system" ? ["Theme"] : []),
+      ...(isElectron && settings.desktopZoomFactor !== DEFAULT_DESKTOP_ZOOM_FACTOR
+        ? ["Interface scale"]
+        : []),
       ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
         ? ["Time format"]
         : []),
@@ -391,6 +407,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       isGitWritingModelDirty,
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
+      settings.desktopZoomFactor,
       settings.defaultThreadEnvMode,
       settings.diffWordWrap,
       settings.enableAssistantStreaming,
@@ -717,6 +734,49 @@ export function GeneralSettingsPanel() {
             </Select>
           }
         />
+
+        {isElectron ? (
+          <SettingsRow
+            title="Interface scale"
+            description="Scale the Electron app UI on this device. Applies immediately and also follows Ctrl/Cmd plus, minus, and 0."
+            resetAction={
+              settings.desktopZoomFactor !== DEFAULT_UNIFIED_SETTINGS.desktopZoomFactor ? (
+                <SettingResetButton
+                  label="interface scale"
+                  onClick={() =>
+                    updateSettings({
+                      desktopZoomFactor: DEFAULT_UNIFIED_SETTINGS.desktopZoomFactor,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Select
+                value={String(settings.desktopZoomFactor)}
+                onValueChange={(value) => {
+                  const nextZoomFactor = DESKTOP_ZOOM_FACTOR_OPTIONS.find(
+                    (option) => String(option.value) === value,
+                  )?.value;
+                  if (nextZoomFactor !== undefined) {
+                    updateSettings({ desktopZoomFactor: nextZoomFactor });
+                  }
+                }}
+              >
+                <SelectTrigger className="w-full sm:w-32" aria-label="Interface scale">
+                  <SelectValue>{`${Math.round(settings.desktopZoomFactor * 100)}%`}</SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  {DESKTOP_ZOOM_FACTOR_OPTIONS.map((option) => (
+                    <SelectItem hideIndicator key={option.value} value={String(option.value)}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            }
+          />
+        ) : null}
 
         <SettingsRow
           title="Time format"
