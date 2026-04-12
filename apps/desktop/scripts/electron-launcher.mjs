@@ -24,6 +24,26 @@ const LAUNCHER_VERSION = 1;
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const desktopDir = resolve(__dirname, "..");
 
+function installElectronBinary(electronPackageDir) {
+  const installScriptPath = join(electronPackageDir, "install.js");
+  const installResult = spawnSync(process.execPath, [installScriptPath], {
+    cwd: electronPackageDir,
+    stdio: "inherit",
+  });
+
+  if (installResult.status === 0) {
+    return;
+  }
+
+  const details =
+    typeof installResult.status === "number"
+      ? `exit code ${installResult.status}`
+      : installResult.signal
+        ? `signal ${installResult.signal}`
+        : "unknown failure";
+  throw new Error(`Failed to install Electron runtime (${details}).`);
+}
+
 function setPlistString(plistPath, key, value) {
   const replaceResult = spawnSync("plutil", ["-replace", key, "-string", value, plistPath], {
     encoding: "utf8",
@@ -134,7 +154,21 @@ function buildMacLauncher(electronBinaryPath) {
 
 export function resolveElectronPath() {
   const require = createRequire(import.meta.url);
-  const electronBinaryPath = require("electron");
+  const electronPackageJsonPath = require.resolve("electron/package.json");
+  const electronPackageDir = dirname(electronPackageJsonPath);
+
+  let electronBinaryPath;
+  try {
+    electronBinaryPath = require("electron");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("Electron failed to install correctly")) {
+      throw error;
+    }
+
+    installElectronBinary(electronPackageDir);
+    electronBinaryPath = require("electron");
+  }
 
   if (process.platform !== "darwin") {
     return electronBinaryPath;
