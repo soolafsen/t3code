@@ -42,6 +42,12 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
       } satisfies OrchestrationCommand;
     }
 
+    if (command.type === "thread.homer.trigger") {
+      return yield* new OrchestrationDispatchCommandError({
+        message: "thread.homer.trigger must be handled directly by the websocket runtime.",
+      });
+    }
+
     if (command.type !== "thread.turn.start") {
       return command as OrchestrationCommand;
     }

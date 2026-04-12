@@ -61,6 +61,7 @@ We are not accepting contributions yet.
 Observability guide: [docs/observability.md](./docs/observability.md)
 Local fork/sync guide: [docs/local-customization.md](./docs/local-customization.md)
 T3Homer guide: [docs/t3homer.md](./docs/t3homer.md)
+T3Homer MVP: [docs/t3homer-mvp.md](./docs/t3homer-mvp.md)
 
 ## If you REALLY want to contribute still.... read this first
 

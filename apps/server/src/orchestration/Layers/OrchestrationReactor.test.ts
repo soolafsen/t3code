@@ -5,6 +5,7 @@ import { CheckpointReactor } from "../Services/CheckpointReactor.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { OrchestrationReactor } from "../Services/OrchestrationReactor.ts";
+import { T3HomerSupervisor } from "../Services/T3HomerSupervisor.ts";
 import { makeOrchestrationReactor } from "./OrchestrationReactor.ts";
 
 describe("OrchestrationReactor", () => {
@@ -49,6 +50,16 @@ describe("OrchestrationReactor", () => {
             drain: Effect.void,
           }),
         ),
+        Layer.provideMerge(
+          Layer.succeed(T3HomerSupervisor, {
+            start: () => {
+              started.push("t3homer-supervisor");
+              return Effect.void;
+            },
+            drain: Effect.void,
+            forceHandoff: () => Effect.succeed("triggered" as const),
+          }),
+        ),
       ),
     );
 
@@ -60,6 +71,7 @@ describe("OrchestrationReactor", () => {
       "provider-runtime-ingestion",
       "provider-command-reactor",
       "checkpoint-reactor",
+      "t3homer-supervisor",
     ]);
 
     await Effect.runPromise(Scope.close(scope, Exit.void));

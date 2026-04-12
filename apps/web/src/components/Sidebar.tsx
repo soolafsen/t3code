@@ -36,6 +36,7 @@ import {
   type DesktopUpdateState,
   type EnvironmentId,
   ProjectId,
+  T3_HOMER_ACTIVITY_KINDS,
   type ScopedProjectRef,
   type ScopedThreadRef,
   type ThreadEnvMode,
@@ -61,6 +62,7 @@ import { isLinuxPlatform, isMacPlatform, newCommandId, newProjectId } from "../l
 import {
   selectProjectByRef,
   selectProjectsAcrossEnvironments,
+  selectThreadsAcrossEnvironments,
   selectSidebarThreadsForProjectRef,
   selectSidebarThreadsForProjectRefs,
   selectSidebarThreadsAcrossEnvironments,
@@ -163,6 +165,7 @@ const SIDEBAR_LIST_ANIMATION_OPTIONS = {
   easing: "ease-out",
 } as const;
 const EMPTY_THREAD_JUMP_LABELS = new Map<string, string>();
+const HOMER_ACTIVITY_KIND_SET = new Set<string>(Object.values(T3_HOMER_ACTIVITY_KINDS));
 
 function threadJumpLabelMapsEqual(
   left: ReadonlyMap<string, string>,
@@ -1990,6 +1993,7 @@ const SidebarChromeFooter = memo(function SidebarChromeFooter() {
 
   return (
     <SidebarFooter className="p-2">
+      <HomerStatusPill />
       <SidebarUpdatePill />
       <SidebarMenu>
         <SidebarMenuItem>
@@ -2004,6 +2008,87 @@ const SidebarChromeFooter = memo(function SidebarChromeFooter() {
         </SidebarMenuItem>
       </SidebarMenu>
     </SidebarFooter>
+  );
+});
+
+const HomerStatusPill = memo(function HomerStatusPill() {
+  const settings = useSettings();
+  const threads = useStore(useShallow(selectThreadsAcrossEnvironments));
+  const navigate = useNavigate();
+
+  const homerStats = useMemo(() => {
+    let started = 0;
+    let ended = 0;
+    let interrupted = 0;
+    let escalated = 0;
+
+    for (const thread of threads) {
+      for (const activity of thread.activities) {
+        if (!HOMER_ACTIVITY_KIND_SET.has(activity.kind)) {
+          continue;
+        }
+        switch (activity.kind) {
+          case T3_HOMER_ACTIVITY_KINDS.sessionStarted:
+            started += 1;
+            break;
+          case T3_HOMER_ACTIVITY_KINDS.sessionEnded:
+            ended += 1;
+            break;
+          case T3_HOMER_ACTIVITY_KINDS.sessionInterrupted:
+            interrupted += 1;
+            break;
+          case T3_HOMER_ACTIVITY_KINDS.escalated:
+            escalated += 1;
+            break;
+        }
+      }
+    }
+
+    return { started, ended, interrupted, escalated };
+  }, [threads]);
+
+  const isEnabled = settings.homer.enabled;
+  const totalActions =
+    homerStats.started + homerStats.ended + homerStats.interrupted + homerStats.escalated;
+  const indicatorClass = isEnabled
+    ? homerStats.escalated > 0
+      ? "bg-amber-500"
+      : "bg-emerald-500"
+    : "bg-zinc-400/70";
+  const detail = isEnabled
+    ? [
+        `${homerStats.started} started`,
+        `${homerStats.ended} ended`,
+        `${homerStats.interrupted} interrupted`,
+        `${homerStats.escalated} escalated`,
+      ].join(" · ")
+    : "Enable Homer in Settings to let it supervise sessions in the background.";
+
+  const handleClick = useCallback(() => {
+    void navigate({ to: "/settings/general" });
+  }, [navigate]);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            onClick={handleClick}
+            className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-2.5 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            aria-label="Open Homer settings"
+          />
+        }
+      >
+        <span className={`size-2 rounded-full ${indicatorClass}`} />
+        <CloudIcon className="size-3.5" />
+        <span className="font-medium text-foreground">{isEnabled ? "Homer on" : "Homer off"}</span>
+        <span className="truncate">
+          {isEnabled ? `${totalActions} actions` : "background supervision disabled"}
+        </span>
+      </TooltipTrigger>
+      <TooltipPopup>{detail}</TooltipPopup>
+    </Tooltip>
   );
 });
 

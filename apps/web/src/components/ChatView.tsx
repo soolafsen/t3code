@@ -663,6 +663,7 @@ export default function ChatView(props: ChatViewProps) {
     Record<string, string | null>
   >({});
   const [isConnecting, _setIsConnecting] = useState(false);
+  const [isTriggeringHomerTest, setIsTriggeringHomerTest] = useState(false);
   const [isRevertingCheckpoint, setIsRevertingCheckpoint] = useState(false);
   const [respondingRequestIds, setRespondingRequestIds] = useState<ApprovalRequestId[]>([]);
   const [respondingUserInputRequestIds, setRespondingUserInputRequestIds] = useState<
@@ -1491,6 +1492,47 @@ export default function ChatView(props: ChatViewProps) {
       },
     });
   }, [diffOpen, environmentId, isServerThread, navigate, onDiffPanelOpen, threadId]);
+
+  const onTriggerHomerTest = useCallback(() => {
+    if (!activeThread || !isServerThread || isTriggeringHomerTest) {
+      return;
+    }
+
+    const api = readEnvironmentApi(environmentId);
+    if (!api) {
+      return;
+    }
+    const createdAt = new Date().toISOString();
+    setIsTriggeringHomerTest(true);
+    void api.orchestration
+      .dispatchCommand({
+        type: "thread.homer.trigger",
+        commandId: newCommandId(),
+        threadId: activeThread.id,
+        reason: "Manual Homer test requested from the dev UI.",
+        createdAt,
+      })
+      .then(() => {
+        toastManager.add({
+          type: "success",
+          title: "Homer test started",
+          description: "Watch the thread activity and footer counts for the forced handoff.",
+        });
+      })
+      .catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not trigger Homer test",
+          description:
+            error instanceof Error
+              ? error.message
+              : "An unknown error occurred while testing Homer.",
+        });
+      })
+      .finally(() => {
+        setIsTriggeringHomerTest(false);
+      });
+  }, [activeThread, environmentId, isServerThread, isTriggeringHomerTest]);
 
   const envLocked = Boolean(
     activeThread &&
@@ -3317,10 +3359,13 @@ export default function ChatView(props: ChatViewProps) {
           diffToggleShortcutLabel={diffPanelShortcutLabel}
           gitCwd={gitCwd}
           diffOpen={diffOpen}
+          showHomerTestAction={import.meta.env.DEV && isServerThread}
+          homerTestBusy={isTriggeringHomerTest}
           onRunProjectScript={runProjectScript}
           onAddProjectScript={saveProjectScript}
           onUpdateProjectScript={updateProjectScript}
           onDeleteProjectScript={deleteProjectScript}
+          onTriggerHomerTest={onTriggerHomerTest}
           onToggleTerminal={toggleTerminalVisibility}
           onToggleDiff={onToggleDiff}
         />

@@ -1,9 +1,14 @@
+import { useNavigate } from "@tanstack/react-router";
+
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "./ui/empty";
+import { Button } from "./ui/button";
 import { SidebarInset, SidebarTrigger } from "./ui/sidebar";
 import { isElectron } from "../env";
 import { cn } from "~/lib/utils";
 
 export function NoActiveThreadState() {
+  const navigate = useNavigate();
+
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
@@ -33,6 +38,23 @@ export function NoActiveThreadState() {
                 Select an existing thread or create a new one to get started.
               </EmptyDescription>
             </EmptyHeader>
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+              <Button variant="outline" onClick={() => void navigate({ to: "/settings/general" })}>
+                Open settings
+              </Button>
+              <Button
+                variant="outline"
+                render={
+                  <a
+                    href="https://github.com/soolafsen/t3code/blob/dev/docs/t3homer-mvp.md"
+                    target="_blank"
+                    rel="noreferrer"
+                  />
+                }
+              >
+                Read the Homer guide
+              </Button>
+            </div>
           </div>
         </Empty>
       </div>

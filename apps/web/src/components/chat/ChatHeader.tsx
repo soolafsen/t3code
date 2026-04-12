@@ -11,6 +11,7 @@ import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
 import { DiffIcon, TerminalSquareIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { Toggle } from "../ui/toggle";
@@ -35,10 +36,13 @@ interface ChatHeaderProps {
   diffToggleShortcutLabel: string | null;
   gitCwd: string | null;
   diffOpen: boolean;
+  showHomerTestAction?: boolean;
+  homerTestBusy?: boolean;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
   onDeleteProjectScript: (scriptId: string) => Promise<void>;
+  onTriggerHomerTest?: () => void;
   onToggleTerminal: () => void;
   onToggleDiff: () => void;
 }
@@ -61,10 +65,13 @@ export const ChatHeader = memo(function ChatHeader({
   diffToggleShortcutLabel,
   gitCwd,
   diffOpen,
+  showHomerTestAction = false,
+  homerTestBusy = false,
   onRunProjectScript,
   onAddProjectScript,
   onUpdateProjectScript,
   onDeleteProjectScript,
+  onTriggerHomerTest,
   onToggleTerminal,
   onToggleDiff,
 }: ChatHeaderProps) {
@@ -114,6 +121,25 @@ export const ChatHeader = memo(function ChatHeader({
             activeThreadRef={scopeThreadRef(activeThreadEnvironmentId, activeThreadId)}
             {...(draftId ? { draftId } : {})}
           />
+        )}
+        {showHomerTestAction && onTriggerHomerTest && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={onTriggerHomerTest}
+                  disabled={homerTestBusy}
+                >
+                  Test Homer
+                </Button>
+              }
+            />
+            <TooltipPopup side="bottom">
+              Force a fresh-session Homer handoff for this thread.
+            </TooltipPopup>
+          </Tooltip>
         )}
         <Tooltip>
           <TooltipTrigger

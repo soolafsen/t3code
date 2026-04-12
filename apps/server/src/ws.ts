@@ -2,6 +2,7 @@ import { Cause, Effect, Layer, Queue, Ref, Schema, Stream } from "effect";
 import {
   type AuthAccessStreamEvent,
   AuthSessionId,
+  type ClientOrchestrationCommand,
   CommandId,
   EventId,
   type OrchestrationCommand,
@@ -35,6 +36,7 @@ import { Open, resolveAvailableEditors } from "./open";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
+import { T3HomerSupervisor } from "./orchestration/Services/T3HomerSupervisor";
 import {
   observeRpcEffect,
   observeRpcStream,
@@ -107,6 +109,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
     Effect.gen(function* () {
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
       const orchestrationEngine = yield* OrchestrationEngineService;
+      const t3HomerSupervisor = yield* T3HomerSupervisor;
       const checkpointDiffQuery = yield* CheckpointDiffQuery;
       const keybindings = yield* Keybindings;
       const open = yield* Open;
@@ -431,6 +434,40 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           );
       };
 
+      const dispatchHomerTriggerCommand = (
+        command: Extract<ClientOrchestrationCommand, { type: "thread.homer.trigger" }>,
+      ): Effect.Effect<{ readonly sequence: number }, OrchestrationDispatchCommandError> =>
+        startup
+          .enqueueCommand(
+            Effect.gen(function* () {
+              const result = yield* t3HomerSupervisor.forceHandoff({
+                threadId: command.threadId,
+                createdAt: command.createdAt,
+                ...(command.reason ? { reason: command.reason } : {}),
+              });
+
+              if (result === "disabled") {
+                return yield* new OrchestrationDispatchCommandError({
+                  message: "Enable T3Homer in Settings before running a manual Homer test.",
+                });
+              }
+
+              if (result === "thread_not_found") {
+                return yield* new OrchestrationDispatchCommandError({
+                  message: `Thread '${command.threadId}' was not found for the Homer test trigger.`,
+                });
+              }
+
+              const snapshot = yield* projectionSnapshotQuery.getSnapshot();
+              return { sequence: snapshot.snapshotSequence };
+            }),
+          )
+          .pipe(
+            Effect.mapError((cause) =>
+              toDispatchCommandError(cause, "Failed to dispatch orchestration command"),
+            ),
+          );
+
       const loadServerConfig = Effect.gen(function* () {
         const keybindingsConfig = yield* keybindings.loadConfigState;
         const providers = yield* providerRegistry.getProviders;
@@ -485,6 +522,9 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.dispatchCommand,
             Effect.gen(function* () {
+              if (command.type === "thread.homer.trigger") {
+                return yield* dispatchHomerTriggerCommand(command);
+              }
               const normalizedCommand = yield* normalizeDispatchCommand(command);
               const result = yield* dispatchNormalizedCommand(normalizedCommand);
               if (normalizedCommand.type === "thread.archive") {

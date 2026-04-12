@@ -24,6 +24,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       assert.deepEqual(decodePatch({ providers: { codex: { binaryPath: "/tmp/codex" } } }), {
         providers: { codex: { binaryPath: "/tmp/codex" } },
       });
+      assert.deepEqual(decodePatch({ homer: { enabled: true } }), {
+        homer: { enabled: true },
+      });
 
       assert.deepEqual(
         decodePatch({
@@ -215,6 +218,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       const serverConfig = yield* ServerConfig;
       const fileSystem = yield* FileSystem.FileSystem;
       const next = yield* serverSettings.updateSettings({
+        homer: {
+          enabled: true,
+        },
         observability: {
           otlpTracesUrl: "http://localhost:4318/v1/traces",
           otlpMetricsUrl: "http://localhost:4318/v1/metrics",
@@ -230,6 +236,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
 
       const raw = yield* fileSystem.readFileString(serverConfig.settingsPath);
       assert.deepEqual(JSON.parse(raw), {
+        homer: {
+          enabled: true,
+        },
         observability: {
           otlpTracesUrl: "http://localhost:4318/v1/traces",
           otlpMetricsUrl: "http://localhost:4318/v1/metrics",

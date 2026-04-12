@@ -68,6 +68,10 @@ import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
 } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import {
+  T3HomerSupervisor,
+  type T3HomerSupervisorShape,
+} from "./orchestration/Services/T3HomerSupervisor.ts";
 import { PersistenceSqlError } from "./persistence/Errors.ts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import {
@@ -298,6 +302,7 @@ const buildAppUnderTest = (options?: {
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQueryShape>;
     checkpointDiffQuery?: Partial<CheckpointDiffQueryShape>;
+    t3HomerSupervisor?: Partial<T3HomerSupervisorShape>;
     browserTraceCollector?: Partial<BrowserTraceCollectorShape>;
     serverLifecycleEvents?: Partial<ServerLifecycleEventsShape>;
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
@@ -430,6 +435,14 @@ const buildAppUnderTest = (options?: {
               diff: "",
             }),
           ...options?.layers?.checkpointDiffQuery,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(T3HomerSupervisor)({
+          start: () => Effect.void,
+          drain: Effect.void,
+          forceHandoff: () => Effect.succeed("triggered" as const),
+          ...options?.layers?.t3HomerSupervisor,
         }),
       ),
     );
@@ -2794,6 +2807,54 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ),
       );
       assert.deepEqual(replayResult, []);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes manual Homer trigger commands through the supervisor", () =>
+    Effect.gen(function* () {
+      const forceHandoffCalls: Array<Parameters<T3HomerSupervisorShape["forceHandoff"]>[0]> = [];
+
+      yield* buildAppUnderTest({
+        layers: {
+          projectionSnapshotQuery: {
+            getSnapshot: () =>
+              Effect.succeed({
+                ...makeDefaultOrchestrationReadModel(),
+                snapshotSequence: 42,
+              }),
+          },
+          t3HomerSupervisor: {
+            forceHandoff: (input) =>
+              Effect.sync(() => {
+                forceHandoffCalls.push(input);
+                return "triggered" as const;
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const createdAt = new Date().toISOString();
+      const dispatchResult = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
+            type: "thread.homer.trigger",
+            commandId: CommandId.make("cmd-homer-trigger"),
+            threadId: ThreadId.make("thread-1"),
+            reason: "Manual Homer test requested from the dev UI.",
+            createdAt,
+          }),
+        ),
+      );
+
+      assert.equal(dispatchResult.sequence, 42);
+      assert.deepEqual(forceHandoffCalls, [
+        {
+          threadId: ThreadId.make("thread-1"),
+          createdAt,
+          reason: "Manual Homer test requested from the dev UI.",
+        },
+      ]);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
