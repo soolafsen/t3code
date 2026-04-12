@@ -1162,8 +1162,8 @@ export function ConnectionsSettings() {
                         </AlertDialogTitle>
                         <AlertDialogDescription>
                           {pendingDesktopServerExposureMode === "network-accessible"
-                            ? "T3 Code will restart to expose this environment over the network."
-                            : "T3 Code will restart and limit this environment back to this machine."}
+                            ? "T3Homer will restart to expose this environment over the network."
+                            : "T3Homer will restart and limit this environment back to this machine."}
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>

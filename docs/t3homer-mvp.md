@@ -1,6 +1,6 @@
 # T3Homer MVP
 
-T3Homer is the first cut of a deterministic background supervisor for T3 Code sessions.
+T3Homer is the first cut of a deterministic background supervisor for this T3 Code fork.
 
 The goal of this MVP is narrow:
 
@@ -44,10 +44,11 @@ That switch enables or disables the background supervisor for the app.
 
 ## Visible UI
 
-Homer stays quiet until it acts, but there are now two visible cues:
+Homer stays quiet until it acts, but there are now three visible cues:
 
 - thread activity entries such as `prepare handoff`, `session ended`, `session interrupted`, `handoff prepared`, and `session started`
-- a footer status pill at the bottom of the sidebar that shows whether Homer is on plus cumulative counts for started, ended, interrupted, and escalated sessions
+- a footer status pill at the bottom of the sidebar that shows whether Homer is on plus cumulative `handoff` count
+- a `Test Homer` button in server-backed thread headers whenever Homer is enabled
 
 ## What Homer Does Not Do Yet
 
@@ -65,9 +66,10 @@ That restraint is deliberate. The useful differentiator is reliable session hygi
 
 - Homer defaults to off.
 - This fork now keeps its local app data under `~/.t3-homer` by default so it does not share settings with a standard T3 Code install.
-- Counts in the footer are derived from persisted Homer activity, so they survive reloads.
+- Footer handoff counts are derived from persisted Homer activity, so they survive reloads.
+- Hovering the footer pill still shows the lower-level started, ended, interrupted, and escalated counts.
 - The current restart path reuses the live thread and current repo state.
-- In development builds, the active thread header includes a `Test Homer` button that forces a fresh-session handoff for manual verification.
+- When Homer is enabled, the active server-thread header includes a `Test Homer` button that forces a fresh-session handoff for manual verification.
 
 ## Recommended Next Steps
 

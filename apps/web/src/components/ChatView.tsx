@@ -3359,7 +3359,7 @@ export default function ChatView(props: ChatViewProps) {
           diffToggleShortcutLabel={diffPanelShortcutLabel}
           gitCwd={gitCwd}
           diffOpen={diffOpen}
-          showHomerTestAction={(import.meta.env.DEV || isElectron) && isServerThread}
+          showHomerTestAction={settings.homer.enabled && isServerThread}
           homerTestBusy={isTriggeringHomerTest}
           onRunProjectScript={runProjectScript}
           onAddProjectScript={saveProjectScript}

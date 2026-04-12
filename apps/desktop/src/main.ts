@@ -111,7 +111,7 @@ const SAVED_ENVIRONMENT_REGISTRY_PATH = Path.join(STATE_DIR, "saved-environments
 const DESKTOP_SCHEME = "t3";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
-const APP_DISPLAY_NAME = isDevelopment ? "T3 Homer (Dev)" : "T3 Homer (Alpha)";
+const APP_DISPLAY_NAME = isDevelopment ? "T3Homer (Dev)" : "T3Homer (Alpha)";
 const APP_USER_MODEL_ID = isDevelopment ? "com.t3tools.t3homer.dev" : "com.t3tools.t3homer";
 const LINUX_DESKTOP_ENTRY_NAME = isDevelopment ? "t3-homer-dev.desktop" : "t3-homer.desktop";
 const LINUX_WM_CLASS = isDevelopment ? "t3-homer-dev" : "t3-homer";
@@ -671,7 +671,7 @@ function handleFatalStartupError(stage: string, error: unknown): void {
   console.error(`[desktop] fatal startup error (${stage})`, error);
   if (!isQuitting) {
     isQuitting = true;
-    dialog.showErrorBox("T3 Code failed to start", `Stage: ${stage}\n${message}${detail}`);
+    dialog.showErrorBox("T3Homer failed to start", `Stage: ${stage}\n${message}${detail}`);
   }
   stopBackend();
   restoreStdIoCapture?.();
@@ -776,7 +776,7 @@ async function checkForUpdatesFromMenu(): Promise<void> {
     void dialog.showMessageBox({
       type: "info",
       title: "You're up to date!",
-      message: `T3 Code ${updateState.currentVersion} is currently the newest version available.`,
+      message: `T3Homer ${updateState.currentVersion} is currently the newest version available.`,
       buttons: ["OK"],
     });
   } else if (updateState.status === "error") {
@@ -894,7 +894,7 @@ function resolveIconPath(ext: "ico" | "icns" | "png"): string | null {
  *
  * Electron derives the default userData path from `productName` in
  * package.json, which currently produces directories with spaces and
- * parentheses (e.g. `~/.config/T3 Homer (Alpha)` on Linux). This is
+ * parentheses (e.g. `~/.config/T3Homer (Alpha)` on Linux). This is
  * unfriendly for shell usage and violates Linux naming conventions.
  *
  * We override it to a clean lowercase name (`t3-homer`). If the legacy

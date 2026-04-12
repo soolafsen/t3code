@@ -2048,8 +2048,7 @@ const HomerStatusPill = memo(function HomerStatusPill() {
   }, [threads]);
 
   const isEnabled = settings.homer.enabled;
-  const totalActions =
-    homerStats.started + homerStats.ended + homerStats.interrupted + homerStats.escalated;
+  const handoffCount = homerStats.started;
   const indicatorClass = isEnabled
     ? homerStats.escalated > 0
       ? "bg-amber-500"
@@ -2084,7 +2083,9 @@ const HomerStatusPill = memo(function HomerStatusPill() {
         <CloudIcon className="size-3.5" />
         <span className="font-medium text-foreground">{isEnabled ? "Homer on" : "Homer off"}</span>
         <span className="truncate">
-          {isEnabled ? `${totalActions} actions` : "background supervision disabled"}
+          {isEnabled
+            ? `${handoffCount} handoff${handoffCount === 1 ? "" : "s"}`
+            : "background supervision disabled"}
         </span>
       </TooltipTrigger>
       <TooltipPopup>{detail}</TooltipPopup>
