@@ -1,9 +1,9 @@
-# T3Homer
+# T3 Homer
 
-T3Homer is a T3 Code fork focused on two practical upgrades over vanilla T3 Code:
+T3 Homer is a T3 Code fork focused on two practical upgrades over vanilla T3 Code:
 
 - desktop interface scaling that behaves like a first-class app setting
-- T3Homer, a deterministic background supervisor that rotates unhealthy sessions before they get weird
+- T3 Homer, a deterministic background supervisor that rotates unhealthy sessions before they get weird
 
 ## TL;DR
 
@@ -18,15 +18,21 @@ That starts the standalone Electron wrapper, which is now the default local run 
 
 Short run guide: [docs/how-to-run.md](./docs/how-to-run.md)
 
+## Download (Windows)
+
+1. Go to [Releases](https://github.com/soolafsen/t3code/releases/latest).
+2. Download `T3-Homer-*-x64.exe`.
+3. Run the installer.
+
 ## What This Fork Adds
 
 ### 1. Desktop scaling that actually sticks
 
-T3Homer exposes `Settings -> General -> Interface scale` in the Electron app. The scale applies immediately, follows the standard zoom shortcuts, and resizes the desktop window coherently instead of leaving the UI and window geometry out of sync.
+T3 Homer exposes `Settings -> General -> Interface scale` in the Electron app. The scale applies immediately, follows the standard zoom shortcuts, and resizes the desktop window coherently instead of leaving the UI and window geometry out of sync.
 
 ### 2. Homer background supervision
 
-T3Homer adds a deterministic background supervisor that watches session drift, prepares fresh-session handoffs, and restarts sessions when runtime failures or compaction make the current session unreliable.
+T3 Homer adds a deterministic background supervisor that watches session drift, prepares fresh-session handoffs, and restarts sessions when runtime failures or compaction make the current session unreliable.
 
 Visible cues today:
 
@@ -35,11 +41,11 @@ Visible cues today:
 - a `Test Homer` button on server-backed threads whenever Homer is enabled
 
 Detailed fork notes: [docs/fork-features.md](./docs/fork-features.md)
-T3Homer status: [docs/t3homer-status.md](./docs/t3homer-status.md)
+T3 Homer status: [docs/t3homer-status.md](./docs/t3homer-status.md)
 
 ## Upstream Compatibility
 
-This repo is still structurally T3 Code, but the desktop-facing fork identity is now `T3Homer`.
+This repo is still structurally T3 Code, but the desktop-facing fork identity is now `T3 Homer`.
 
 - local app data defaults to `~/.t3-homer`
 - the desktop app uses its own product name and user-data identity
@@ -48,7 +54,7 @@ This repo is still structurally T3 Code, but the desktop-facing fork identity is
 ## Installation
 
 > [!WARNING]
-> T3Homer currently supports Codex and Claude.
+> T3 Homer currently supports Codex and Claude.
 > Install and authenticate at least one provider before use:
 >
 > - Codex: install [Codex CLI](https://github.com/openai/codex) and run `codex login`
@@ -91,8 +97,9 @@ Upstream project docs that are still directly relevant:
 Observability guide: [docs/observability.md](./docs/observability.md)
 Local fork/sync guide: [docs/local-customization.md](./docs/local-customization.md)
 Fork feature notes: [docs/fork-features.md](./docs/fork-features.md)
-T3Homer status: [docs/t3homer-status.md](./docs/t3homer-status.md)
-T3Homer MVP: [docs/t3homer-mvp.md](./docs/t3homer-mvp.md)
+T3 Homer status: [docs/t3homer-status.md](./docs/t3homer-status.md)
+Checkpoint-anchored continuation plan: [docs/t3homer-checkpoint-anchored-continuation.md](./docs/t3homer-checkpoint-anchored-continuation.md)
+T3 Homer MVP: [docs/t3homer-mvp.md](./docs/t3homer-mvp.md)
 
 ## If you REALLY want to contribute still.... read this first
 

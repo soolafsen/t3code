@@ -10,6 +10,7 @@ import {
   hasUnseenCompletion,
   isContextMenuPointerDown,
   orderItemsByPreferredIds,
+  resolveHomerSidebarLabel,
   resolveProjectStatusIndicator,
   resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
@@ -28,6 +29,13 @@ import {
 } from "../types";
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
+const HOMER_THREAD_LINKAGE = {
+  homerSourceThreadId: null,
+  homerSuccessorThreadId: null,
+  homerTransitionKind: null,
+  homerTaskAnchor: null,
+  homerManagedWorkState: null,
+} as const;
 
 function makeLatestTurn(overrides?: {
   completedAt?: string | null;
@@ -227,6 +235,35 @@ describe("resolveSidebarNewThreadSeedContext", () => {
     ).toEqual({
       envMode: "worktree",
     });
+  });
+});
+
+describe("resolveHomerSidebarLabel", () => {
+  it("marks successor threads explicitly", () => {
+    expect(
+      resolveHomerSidebarLabel({
+        homerSourceThreadId: ThreadId.make("thread-source"),
+        homerSuccessorThreadId: null,
+      }),
+    ).toBe("Successor");
+  });
+
+  it("marks superseded threads explicitly", () => {
+    expect(
+      resolveHomerSidebarLabel({
+        homerSourceThreadId: null,
+        homerSuccessorThreadId: ThreadId.make("thread-successor"),
+      }),
+    ).toBe("Superseded");
+  });
+
+  it("stays quiet for unrelated threads", () => {
+    expect(
+      resolveHomerSidebarLabel({
+        homerSourceThreadId: null,
+        homerSuccessorThreadId: null,
+      }),
+    ).toBeNull();
   });
 });
 
@@ -660,6 +697,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     latestTurn: null,
     branch: null,
     worktreePath: null,
+    ...HOMER_THREAD_LINKAGE,
     turnDiffSummaries: [],
     activities: [],
     ...overrides,

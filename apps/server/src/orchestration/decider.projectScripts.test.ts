@@ -15,6 +15,13 @@ import { createEmptyReadModel, projectEvent } from "./projector.ts";
 const asEventId = (value: string): EventId => EventId.make(value);
 const asProjectId = (value: string): ProjectId => ProjectId.make(value);
 const asMessageId = (value: string): MessageId => MessageId.make(value);
+const HOMER_THREAD_LINKAGE = {
+  homerSourceThreadId: null,
+  homerSuccessorThreadId: null,
+  homerTransitionKind: null,
+  homerTaskAnchor: null,
+  homerManagedWorkState: null,
+} as const;
 
 describe("decider project scripts", () => {
   it("emits empty scripts on project.create", async () => {
@@ -144,6 +151,7 @@ describe("decider project scripts", () => {
           runtimeMode: "approval-required",
           branch: null,
           worktreePath: null,
+          ...HOMER_THREAD_LINKAGE,
           createdAt: now,
           updatedAt: now,
         },
@@ -253,6 +261,7 @@ describe("decider project scripts", () => {
           runtimeMode: "full-access",
           branch: null,
           worktreePath: null,
+          ...HOMER_THREAD_LINKAGE,
           createdAt: now,
           updatedAt: now,
         },
@@ -335,6 +344,7 @@ describe("decider project scripts", () => {
           runtimeMode: "approval-required",
           branch: null,
           worktreePath: null,
+          ...HOMER_THREAD_LINKAGE,
           createdAt: now,
           updatedAt: now,
         },

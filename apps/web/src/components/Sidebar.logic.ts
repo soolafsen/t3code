@@ -56,6 +56,11 @@ type ThreadStatusInput = Pick<
   lastVisitedAt?: string | undefined;
 };
 
+type HomerThreadLabelInput = Pick<
+  SidebarThreadSummary,
+  "homerSourceThreadId" | "homerSuccessorThreadId"
+>;
+
 export interface ThreadJumpHintVisibilityController {
   sync: (shouldShow: boolean) => void;
   dispose: () => void;
@@ -202,6 +207,16 @@ export function resolveSidebarNewThreadSeedContext(input: {
   return {
     envMode: input.defaultEnvMode,
   };
+}
+
+export function resolveHomerSidebarLabel(thread: HomerThreadLabelInput): string | null {
+  if (thread.homerSourceThreadId) {
+    return "Successor";
+  }
+  if (thread.homerSuccessorThreadId) {
+    return "Superseded";
+  }
+  return null;
 }
 
 export function orderItemsByPreferredIds<TItem, TId>(input: {

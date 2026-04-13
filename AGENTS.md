@@ -4,6 +4,7 @@
 
 - All of `bun fmt`, `bun lint`, and `bun typecheck` must pass before considering tasks completed.
 - NEVER run `bun test`. Always use `bun run test` (runs Vitest).
+- During iterative work, prefer `bun run check:smart` for fast package-scoped validation (web tests are opt-in by default), then run full completion checks before handoff.
 
 ## Project Snapshot
 

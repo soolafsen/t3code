@@ -15,6 +15,9 @@ import type {
   CheckpointRef,
   ProviderInteractionMode,
   RuntimeMode,
+  T3HomerManagedWorkState,
+  T3HomerTaskAnchor,
+  T3HomerTransitionKind,
 } from "@t3tools/contracts";
 
 export type SessionPhase = "disconnected" | "connecting" | "ready" | "running";
@@ -112,6 +115,11 @@ export interface Thread {
   pendingSourceProposedPlan?: OrchestrationLatestTurn["sourceProposedPlan"];
   branch: string | null;
   worktreePath: string | null;
+  homerSourceThreadId: ThreadId | null;
+  homerSuccessorThreadId: ThreadId | null;
+  homerTransitionKind: T3HomerTransitionKind | null;
+  homerTaskAnchor: T3HomerTaskAnchor | null;
+  homerManagedWorkState: T3HomerManagedWorkState | null;
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
 }
@@ -131,6 +139,11 @@ export interface ThreadShell {
   updatedAt?: string | undefined;
   branch: string | null;
   worktreePath: string | null;
+  homerSourceThreadId: ThreadId | null;
+  homerSuccessorThreadId: ThreadId | null;
+  homerTransitionKind: T3HomerTransitionKind | null;
+  homerTaskAnchor: T3HomerTaskAnchor | null;
+  homerManagedWorkState: T3HomerManagedWorkState | null;
 }
 
 export interface ThreadTurnState {
@@ -151,6 +164,11 @@ export interface SidebarThreadSummary {
   latestTurn: OrchestrationLatestTurn | null;
   branch: string | null;
   worktreePath: string | null;
+  homerSourceThreadId: ThreadId | null;
+  homerSuccessorThreadId: ThreadId | null;
+  homerTransitionKind: T3HomerTransitionKind | null;
+  homerTaskAnchor: T3HomerTaskAnchor | null;
+  homerManagedWorkState: T3HomerManagedWorkState | null;
   latestUserMessageAt: string | null;
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;

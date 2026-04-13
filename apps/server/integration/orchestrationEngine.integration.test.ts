@@ -39,6 +39,13 @@ const PROJECT_ID = asProjectId("project-1");
 const THREAD_ID = ThreadId.make("thread-1");
 const FIXTURE_TURN_ID = "fixture-turn";
 const APPROVAL_REQUEST_ID = asApprovalRequestId("req-approval-1");
+const HOMER_THREAD_LINKAGE = {
+  homerSourceThreadId: null,
+  homerSuccessorThreadId: null,
+  homerTransitionKind: null,
+  homerTaskAnchor: null,
+  homerManagedWorkState: null,
+} as const;
 type IntegrationProvider = ProviderKind;
 
 function nowIso() {
@@ -93,11 +100,31 @@ function withHarness<A, E>(
   ).pipe(Effect.provide(NodeServices.layer));
 }
 
+function withHomerHarness<A, E>(
+  use: (harness: OrchestrationIntegrationHarness) => Effect.Effect<A, E>,
+) {
+  return Effect.acquireUseRelease(
+    makeOrchestrationIntegrationHarness({ provider: "codex", realHomer: true }),
+    use,
+    (harness) => harness.dispose,
+  ).pipe(Effect.provide(NodeServices.layer));
+}
+
 function withRealCodexHarness<A, E>(
   use: (harness: OrchestrationIntegrationHarness) => Effect.Effect<A, E>,
 ) {
   return Effect.acquireUseRelease(
     makeOrchestrationIntegrationHarness({ provider: "codex", realCodex: true }),
+    use,
+    (harness) => harness.dispose,
+  ).pipe(Effect.provide(NodeServices.layer));
+}
+
+function withRealCodexHomerHarness<A, E>(
+  use: (harness: OrchestrationIntegrationHarness) => Effect.Effect<A, E>,
+) {
+  return Effect.acquireUseRelease(
+    makeOrchestrationIntegrationHarness({ provider: "codex", realCodex: true, realHomer: true }),
     use,
     (harness) => harness.dispose,
   ).pipe(Effect.provide(NodeServices.layer));
@@ -136,6 +163,7 @@ const seedProjectAndThread = (harness: OrchestrationIntegrationHarness) =>
       runtimeMode: "approval-required",
       branch: null,
       worktreePath: harness.workspaceDir,
+      ...HOMER_THREAD_LINKAGE,
       createdAt,
     });
   });
@@ -145,12 +173,14 @@ const startTurn = (input: {
   readonly commandId: string;
   readonly messageId: string;
   readonly text: string;
+  readonly threadId?: ThreadId;
+  readonly runtimeMode?: "approval-required" | "full-access";
   readonly modelSelection?: ModelSelection;
 }) =>
   input.harness.engine.dispatch({
     type: "thread.turn.start",
     commandId: CommandId.make(input.commandId),
-    threadId: THREAD_ID,
+    threadId: input.threadId ?? THREAD_ID,
     message: {
       messageId: asMessageId(input.messageId),
       role: "user",
@@ -163,9 +193,152 @@ const startTurn = (input: {
         }
       : {}),
     interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-    runtimeMode: "approval-required",
+    runtimeMode: input.runtimeMode ?? "approval-required",
     createdAt: nowIso(),
   });
+
+it.live(
+  "fast Homer regression: token pressure triggers restart then successor-thread handoff",
+  () =>
+    withHomerHarness((harness) =>
+      Effect.gen(function* () {
+        yield* seedProjectAndThread(harness);
+
+        yield* harness.adapterHarness!.queueTurnResponseForNextSession({
+          events: [
+            {
+              type: "turn.started",
+              ...runtimeBase("evt-homer-fast-1", "2026-04-13T10:30:00.000Z"),
+              threadId: THREAD_ID,
+              turnId: FIXTURE_TURN_ID,
+            },
+            {
+              type: "thread.token-usage.updated",
+              ...runtimeBase("evt-homer-fast-2", "2026-04-13T10:30:00.050Z"),
+              threadId: THREAD_ID,
+              turnId: FIXTURE_TURN_ID,
+              payload: {
+                usage: {
+                  usedTokens: 920,
+                  maxTokens: 1000,
+                },
+              },
+            },
+            {
+              type: "turn.completed",
+              ...runtimeBase("evt-homer-fast-3", "2026-04-13T10:30:00.100Z"),
+              threadId: THREAD_ID,
+              turnId: FIXTURE_TURN_ID,
+              status: "completed",
+            },
+          ],
+        });
+
+        yield* startTurn({
+          harness,
+          commandId: "cmd-homer-fast-turn-1",
+          messageId: "msg-homer-fast-turn-1",
+          text: [
+            "Your task is validate Homer session transitions.",
+            "",
+            "Constraints:",
+            "- keep state deterministic",
+            "",
+            "When all tasks are complete, say exactly `I'm done`.",
+          ].join("\n"),
+        });
+
+        const restartedThread = yield* harness.waitForThread(
+          THREAD_ID,
+          (entry) =>
+            entry.homerManagedWorkState?.executionPolicy === "restart_in_place" &&
+            entry.session?.status === "ready" &&
+            entry.activities.some((activity) => activity.kind === "t3homer.session.started"),
+        );
+        assert.equal(restartedThread.homerManagedWorkState?.executionPolicy, "restart_in_place");
+
+        yield* harness.adapterHarness!.queueTurnResponse(THREAD_ID, {
+          events: [
+            {
+              type: "turn.started",
+              ...runtimeBase("evt-homer-fast-4", "2026-04-13T10:31:00.000Z"),
+              threadId: THREAD_ID,
+              turnId: FIXTURE_TURN_ID,
+            },
+            {
+              type: "thread.token-usage.updated",
+              ...runtimeBase("evt-homer-fast-5", "2026-04-13T10:31:00.050Z"),
+              threadId: THREAD_ID,
+              turnId: FIXTURE_TURN_ID,
+              payload: {
+                usage: {
+                  usedTokens: 950,
+                  maxTokens: 1000,
+                },
+              },
+            },
+            {
+              type: "turn.completed",
+              ...runtimeBase("evt-homer-fast-6", "2026-04-13T10:31:00.100Z"),
+              threadId: THREAD_ID,
+              turnId: FIXTURE_TURN_ID,
+              status: "completed",
+            },
+          ],
+        });
+
+        yield* startTurn({
+          harness,
+          commandId: "cmd-homer-fast-turn-2",
+          messageId: "msg-homer-fast-turn-2",
+          text: "Continue the same assignment.",
+        });
+
+        const sourceThread = yield* harness.waitForThread(
+          THREAD_ID,
+          (entry) =>
+            entry.homerSuccessorThreadId !== null &&
+            entry.homerTransitionKind === "spawn_successor_thread" &&
+            entry.session?.status === "stopped" &&
+            entry.activities.some(
+              (activity) => activity.kind === "t3homer.successor-thread.spawned",
+            ),
+        );
+        assert.equal(sourceThread.homerSuccessorThreadId !== null, true);
+        assert.equal(
+          sourceThread.activities.some(
+            (activity) => activity.kind === "provider.turn.start.failed",
+          ),
+          false,
+        );
+
+        const successorThread = yield* harness.waitForThread(
+          sourceThread.homerSuccessorThreadId!,
+          (entry) =>
+            entry.homerSourceThreadId === THREAD_ID &&
+            entry.homerTransitionKind === "spawn_successor_thread" &&
+            entry.session?.status === "ready" &&
+            entry.homerManagedWorkState?.executionPolicy === "spawn_successor_thread" &&
+            entry.activities.some(
+              (activity) => activity.kind === "t3homer.successor-thread.created",
+            ) &&
+            entry.messages.some(
+              (message) =>
+                message.role === "user" &&
+                message.text.includes("T3 Homer successor-thread handoff."),
+            ),
+        );
+
+        assert.equal(successorThread.homerSourceThreadId, THREAD_ID);
+        assert.equal(
+          successorThread.activities.some(
+            (activity) => activity.kind === "provider.turn.start.failed",
+          ),
+          false,
+        );
+      }),
+    ),
+);
 
 it.live("runs a single turn end-to-end and persists checkpoint state in sqlite + git", () =>
   withHarness((harness) =>
@@ -285,6 +458,7 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
           runtimeMode: "full-access",
           branch: null,
           worktreePath: harness.workspaceDir,
+          ...HOMER_THREAD_LINKAGE,
           createdAt,
         });
 
@@ -344,6 +518,162 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
         assert.equal(secondThread.session?.threadId, "thread-1");
       }),
     ),
+);
+
+it.live.skipIf(!process.env.CODEX_BINARY_PATH || process.env.RUN_T3HOMER_LIVE_TEST !== "1")(
+  "T3 Homer restarts under token pressure and spawns a successor thread",
+  () =>
+    withRealCodexHomerHarness((harness) =>
+      Effect.gen(function* () {
+        const createdAt = nowIso();
+
+        yield* harness.engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.make("cmd-project-create-real-codex-homer"),
+          projectId: PROJECT_ID,
+          title: "Integration Homer Project",
+          workspaceRoot: harness.workspaceDir,
+          defaultModelSelection: {
+            provider: "codex",
+            model: "gpt-5.4-mini",
+          },
+          createdAt,
+        });
+
+        yield* harness.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("cmd-thread-create-real-codex-homer"),
+          threadId: THREAD_ID,
+          projectId: PROJECT_ID,
+          title: "Homer Integration Thread",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5.4-mini",
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          branch: null,
+          worktreePath: harness.workspaceDir,
+          ...HOMER_THREAD_LINKAGE,
+          createdAt,
+        });
+
+        const tokenPressureBlock = Array.from(
+          { length: 320 },
+          (_, index) =>
+            `token-load-${index.toString().padStart(3, "0")} alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima`,
+        ).join("\n");
+
+        const buildTokenPressurePrompt = (round: number) =>
+          [
+            `Token pressure validation round ${round}.`,
+            "Reply with exactly: OK",
+            "Do not summarize. Do not add extra words.",
+            "Keep one authoritative assignment active across rounds.",
+            "Begin load:",
+            tokenPressureBlock,
+            "End load.",
+          ].join("\n");
+
+        const maxRounds = 12;
+        let observedRestartInPlace = false;
+        let successorThreadId: ThreadId | null = null;
+
+        for (let round = 1; round <= maxRounds; round += 1) {
+          yield* startTurn({
+            harness,
+            commandId: `cmd-turn-start-real-codex-homer-${round}`,
+            messageId: `msg-real-codex-homer-${round}`,
+            text: buildTokenPressurePrompt(round),
+            runtimeMode: "approval-required",
+          });
+
+          const sourceThread = yield* harness.waitForThread(
+            THREAD_ID,
+            (entry) =>
+              entry.latestTurn?.turnId === `turn-${round}` &&
+              (entry.session?.status === "ready" || entry.session?.status === "stopped"),
+            300_000,
+          );
+
+          if (sourceThread.homerManagedWorkState?.executionPolicy === "restart_in_place") {
+            observedRestartInPlace = true;
+          }
+
+          if (sourceThread.homerSuccessorThreadId !== null) {
+            successorThreadId = sourceThread.homerSuccessorThreadId;
+            break;
+          }
+        }
+
+        assert.equal(observedRestartInPlace, true);
+        assert.equal(successorThreadId !== null, true);
+        if (successorThreadId === null) {
+          throw new Error("Expected T3 Homer to spawn a successor thread under token pressure.");
+        }
+
+        const sourceThreadAfterSpawn = yield* harness.waitForThread(
+          THREAD_ID,
+          (entry) =>
+            entry.homerSuccessorThreadId === successorThreadId &&
+            entry.session?.status === "stopped",
+          180_000,
+        );
+        const usageBasedPreparation = sourceThreadAfterSpawn.activities.some((activity) => {
+          if (activity.kind !== "t3homer.prepare-handover") {
+            return false;
+          }
+          const payload =
+            activity.payload && typeof activity.payload === "object"
+              ? (activity.payload as { readonly usageRatio?: number })
+              : null;
+          return typeof payload?.usageRatio === "number";
+        });
+        assert.equal(usageBasedPreparation, true);
+        assert.equal(
+          sourceThreadAfterSpawn.activities.some(
+            (activity) => activity.kind === "t3homer.session.started",
+          ),
+          true,
+        );
+        assert.equal(
+          sourceThreadAfterSpawn.activities.some(
+            (activity) => activity.kind === "provider.turn.start.failed",
+          ),
+          false,
+        );
+
+        const successorThread = yield* harness.waitForThread(
+          successorThreadId,
+          (entry) =>
+            entry.homerSourceThreadId === THREAD_ID &&
+            entry.homerTransitionKind === "spawn_successor_thread" &&
+            entry.session?.status === "ready" &&
+            entry.messages.some(
+              (message) =>
+                message.role === "user" &&
+                message.text.includes("T3 Homer successor-thread handoff."),
+            ),
+          240_000,
+        );
+        assert.equal(successorThread.homerSourceThreadId, THREAD_ID);
+        assert.equal(successorThread.homerTransitionKind, "spawn_successor_thread");
+        assert.equal(successorThread.homerManagedWorkState?.status, "active");
+        assert.equal(
+          successorThread.activities.some(
+            (activity) => activity.kind === "t3homer.successor-thread.created",
+          ),
+          true,
+        );
+        assert.equal(
+          successorThread.activities.some(
+            (activity) => activity.kind === "provider.turn.start.failed",
+          ),
+          false,
+        );
+      }),
+    ),
+  600_000,
 );
 
 it.live("runs multi-turn file edits and persists checkpoint diffs", () =>

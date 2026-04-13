@@ -23,6 +23,8 @@ interface ChatHeaderProps {
   activeThreadId: ThreadId;
   draftId?: DraftId;
   activeThreadTitle: string;
+  homerSourceThreadLabel?: string | null;
+  homerSuccessorThreadLabel?: string | null;
   activeProjectName: string | undefined;
   isGitRepo: boolean;
   openInCwd: string | null;
@@ -43,6 +45,9 @@ interface ChatHeaderProps {
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
   onDeleteProjectScript: (scriptId: string) => Promise<void>;
   onTriggerHomerTest?: () => void;
+  onTriggerHomerSuccessorTest?: () => void;
+  onNavigateToHomerSourceThread?: () => void;
+  onNavigateToHomerSuccessorThread?: () => void;
   onToggleTerminal: () => void;
   onToggleDiff: () => void;
 }
@@ -52,6 +57,8 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadId,
   draftId,
   activeThreadTitle,
+  homerSourceThreadLabel,
+  homerSuccessorThreadLabel,
   activeProjectName,
   isGitRepo,
   openInCwd,
@@ -72,29 +79,58 @@ export const ChatHeader = memo(function ChatHeader({
   onUpdateProjectScript,
   onDeleteProjectScript,
   onTriggerHomerTest,
+  onTriggerHomerSuccessorTest,
+  onNavigateToHomerSourceThread,
+  onNavigateToHomerSuccessorThread,
   onToggleTerminal,
   onToggleDiff,
 }: ChatHeaderProps) {
   return (
     <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2">
-      <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
-        <SidebarTrigger className="size-7 shrink-0 md:hidden" />
-        <h2
-          className="min-w-0 shrink truncate text-sm font-medium text-foreground"
-          title={activeThreadTitle}
-        >
-          {activeThreadTitle}
-        </h2>
-        {activeProjectName && (
-          <Badge variant="outline" className="min-w-0 shrink overflow-hidden">
-            <span className="min-w-0 truncate">{activeProjectName}</span>
-          </Badge>
-        )}
-        {activeProjectName && !isGitRepo && (
-          <Badge variant="outline" className="shrink-0 text-[10px] text-amber-700">
-            No Git
-          </Badge>
-        )}
+      <div className="flex min-w-0 flex-1 items-start gap-2 overflow-hidden sm:gap-3">
+        <SidebarTrigger className="mt-0.5 size-7 shrink-0 md:hidden" />
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <div className="flex min-w-0 items-center gap-2 overflow-hidden sm:gap-3">
+            <h2
+              className="min-w-0 shrink truncate text-sm font-medium text-foreground"
+              title={activeThreadTitle}
+            >
+              {activeThreadTitle}
+            </h2>
+            {activeProjectName && (
+              <Badge variant="outline" className="min-w-0 shrink overflow-hidden">
+                <span className="min-w-0 truncate">{activeProjectName}</span>
+              </Badge>
+            )}
+            {activeProjectName && !isGitRepo && (
+              <Badge variant="outline" className="shrink-0 text-[10px] text-amber-700">
+                No Git
+              </Badge>
+            )}
+          </div>
+          {(homerSourceThreadLabel || homerSuccessorThreadLabel) && (
+            <div className="flex min-w-0 flex-wrap items-center gap-2 text-muted-foreground text-xs">
+              {homerSourceThreadLabel && (
+                <button
+                  type="button"
+                  className="min-w-0 truncate rounded px-1 py-0.5 text-left transition-colors hover:bg-muted/60 hover:text-foreground"
+                  onClick={onNavigateToHomerSourceThread}
+                >
+                  Successor of {homerSourceThreadLabel}
+                </button>
+              )}
+              {homerSuccessorThreadLabel && (
+                <button
+                  type="button"
+                  className="min-w-0 truncate rounded px-1 py-0.5 text-left transition-colors hover:bg-muted/60 hover:text-foreground"
+                  onClick={onNavigateToHomerSuccessorThread}
+                >
+                  Superseded by {homerSuccessorThreadLabel}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
       <div className="flex shrink-0 items-center justify-end gap-2 @3xl/header-actions:gap-3">
         {activeProjectScripts && (
@@ -138,6 +174,25 @@ export const ChatHeader = memo(function ChatHeader({
             />
             <TooltipPopup side="bottom">
               Force a fresh-session Homer handoff for this thread.
+            </TooltipPopup>
+          </Tooltip>
+        )}
+        {showHomerTestAction && onTriggerHomerSuccessorTest && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={onTriggerHomerSuccessorTest}
+                  disabled={homerTestBusy}
+                >
+                  Test Successor
+                </Button>
+              }
+            />
+            <TooltipPopup side="bottom">
+              Force Homer to retire this thread and continue in a successor thread.
             </TooltipPopup>
           </Tooltip>
         )}

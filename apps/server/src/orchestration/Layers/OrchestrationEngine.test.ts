@@ -36,6 +36,13 @@ const asProjectId = (value: string): ProjectId => ProjectId.make(value);
 const asMessageId = (value: string): MessageId => MessageId.make(value);
 const asTurnId = (value: string): TurnId => TurnId.make(value);
 const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.make(value);
+const HOMER_THREAD_LINKAGE = {
+  homerSourceThreadId: null,
+  homerSuccessorThreadId: null,
+  homerTransitionKind: null,
+  homerTaskAnchor: null,
+  homerManagedWorkState: null,
+} as const;
 
 async function createOrchestrationSystem() {
   const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
@@ -126,6 +133,7 @@ describe("OrchestrationEngine", () => {
           runtimeMode: "full-access" as const,
           branch: null,
           worktreePath: null,
+          ...HOMER_THREAD_LINKAGE,
           latestTurn: null,
           createdAt: "2026-03-03T00:00:02.000Z",
           updatedAt: "2026-03-03T00:00:03.000Z",
@@ -209,6 +217,7 @@ describe("OrchestrationEngine", () => {
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: null,
+        ...HOMER_THREAD_LINKAGE,
         createdAt,
       }),
     );
@@ -269,6 +278,7 @@ describe("OrchestrationEngine", () => {
         runtimeMode: "full-access",
         branch: null,
         worktreePath: null,
+        ...HOMER_THREAD_LINKAGE,
         createdAt,
       }),
     );
@@ -336,6 +346,7 @@ describe("OrchestrationEngine", () => {
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: null,
+        ...HOMER_THREAD_LINKAGE,
         createdAt,
       }),
     );
@@ -404,6 +415,7 @@ describe("OrchestrationEngine", () => {
           runtimeMode: "approval-required",
           branch: null,
           worktreePath: null,
+          ...HOMER_THREAD_LINKAGE,
           createdAt,
         });
         yield* engine.dispatch({
@@ -456,6 +468,7 @@ describe("OrchestrationEngine", () => {
         runtimeMode: "full-access",
         branch: null,
         worktreePath: null,
+        ...HOMER_THREAD_LINKAGE,
         createdAt,
       }),
     );
@@ -493,6 +506,7 @@ describe("OrchestrationEngine", () => {
           runtimeMode: "full-access",
           branch: null,
           worktreePath: null,
+          ...HOMER_THREAD_LINKAGE,
           createdAt,
         }),
       ),
@@ -544,6 +558,7 @@ describe("OrchestrationEngine", () => {
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: null,
+        ...HOMER_THREAD_LINKAGE,
         createdAt,
       }),
     );
@@ -665,6 +680,7 @@ describe("OrchestrationEngine", () => {
           runtimeMode: "approval-required",
           branch: null,
           worktreePath: null,
+          ...HOMER_THREAD_LINKAGE,
           createdAt,
         }),
       ),
@@ -685,6 +701,7 @@ describe("OrchestrationEngine", () => {
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: null,
+        ...HOMER_THREAD_LINKAGE,
         createdAt,
       }),
     );
@@ -758,6 +775,7 @@ describe("OrchestrationEngine", () => {
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: null,
+        ...HOMER_THREAD_LINKAGE,
         createdAt,
       }),
     );
@@ -901,6 +919,7 @@ describe("OrchestrationEngine", () => {
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: null,
+        ...HOMER_THREAD_LINKAGE,
         createdAt,
       }),
     );
@@ -987,6 +1006,7 @@ describe("OrchestrationEngine", () => {
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: null,
+        ...HOMER_THREAD_LINKAGE,
         createdAt,
       }),
     );
@@ -1007,6 +1027,7 @@ describe("OrchestrationEngine", () => {
           runtimeMode: "approval-required",
           branch: null,
           worktreePath: null,
+          ...HOMER_THREAD_LINKAGE,
           createdAt,
         }),
       ),

@@ -1,6 +1,6 @@
-# T3Homer Successor-Thread Beta Plan
+# T3 Homer Successor-Thread Beta Plan
 
-This plan covers the next meaningful step after the current T3Homer MVP:
+This plan covers the next meaningful step after the current T3 Homer MVP:
 
 - keep the current deterministic supervisor
 - keep the current restart-from-current-state path
@@ -128,6 +128,10 @@ Likely additions:
   - `homerSourceThreadId`
   - `homerSuccessorThreadId`
   - `homerTransitionKind`
+- small explicit Homer-managed authority state such as:
+  - `homerManagedWorkState`
+  - status values for `active` vs `manual_attention`
+  - timestamps for activation and latest deterministic resume
 
 If the current read model cannot express thread-to-thread Homer linkage cleanly, add a small projected field rather than encoding everything in activity text.
 
@@ -146,6 +150,18 @@ That flow should:
 7. append activities to both threads
 
 Important: thread creation and session start must be treated as one orchestrated transition, not a loose pile of side effects.
+
+The supervisor also needs a deterministic post-promotion continuity path.
+
+If the promoted thread later receives a short status/progress check while Homer still owns the work:
+
+- do not forward that raw text as a new freeform assignment
+- classify it server-side as a status check
+- append visible Homer activity
+- synthesize a compact deterministic continuation prompt from projected state
+- resume work on the authority thread
+
+This keeps successor-thread continuation deterministic even after later user pings like "Are you still working?"
 
 ### Orchestration events
 
@@ -203,12 +219,14 @@ Deliverables:
 
 - `spawnSuccessorThread` implementation in `T3HomerSupervisor`
 - deterministic policy for choosing in-place restart vs successor thread
+- deterministic managed-work continuation handling for status-check turns
 - tests for session handoff across threads
 
 Acceptance:
 
 - supervisor can create a successor thread, stop the old session, and start the new one
 - old/new thread activities are appended correctly
+- successor-thread status checks do not collapse into fresh idle chat behavior
 
 ### Slice 3. Manual trigger and validation path
 
@@ -257,6 +275,26 @@ The successor thread should inherit only what is operationally necessary:
 - source-thread linkage
 
 Do not blindly copy arbitrary thread UI state.
+
+## Implementation Notes
+
+### Deterministic successor kickoff
+
+In the current architecture, a freshly started provider session does not reconstruct its working context from previously projected thread history alone.
+
+That means successor-thread promotion needs two deterministic inputs on the new thread:
+
+- a visible handoff record the user can inspect
+- an immediate kickoff prompt that tells the new session to continue from the handoff and repo state without asking for the original assignment again
+
+In this implementation, Homer also persists a compact task anchor on the thread itself. That anchor carries the authoritative objective, source-doc references, explicit constraints, non-goals, and branch expectation. Short status or progress questions are treated as status checks, not as authority changes, so the successor kickoff can keep the original assignment stable across long-running thread and session transitions.
+
+This still stays inside the beta constraints:
+
+- the handoff payload is server-built
+- no model-written handoff is introduced
+- no autonomous replanning is introduced
+- the successor thread starts with enough explicit context to continue reliably
 
 ## Demo Scenario
 
@@ -312,11 +350,13 @@ This beta is done when:
 - manual testing in the desktop app can trigger and demonstrate the flow
 - the feature still passes `bun fmt`, `bun lint`, and `bun typecheck`
 
+Kickoff prompt for this slice: [docs/t3homer-successor-thread-kickoff-prompt.md](./t3homer-successor-thread-kickoff-prompt.md)
+
 ## After This Beta
 
 The next major follow-up should be checkpoint-aware reset.
 
-That would give T3Homer the full two-lane recovery model the original design wanted:
+That would give T3 Homer the full two-lane recovery model the original design wanted:
 
 - session drift -> fresh continuation
 - repo drift -> checkpoint reset

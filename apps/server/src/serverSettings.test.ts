@@ -27,6 +27,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       assert.deepEqual(decodePatch({ homer: { enabled: true } }), {
         homer: { enabled: true },
       });
+      assert.deepEqual(decodePatch({ homer: { statsResetAt: "2026-04-13T10:15:00.000Z" } }), {
+        homer: { statsResetAt: "2026-04-13T10:15:00.000Z" },
+      });
 
       assert.deepEqual(
         decodePatch({
@@ -248,6 +251,29 @@ it.layer(NodeServices.layer)("server settings", (it) => {
             binaryPath: "/opt/homebrew/bin/codex",
           },
         },
+      });
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("persists Homer stats reset timestamps without dropping enabled state", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsService;
+
+      yield* serverSettings.updateSettings({
+        homer: {
+          enabled: true,
+        },
+      });
+
+      const next = yield* serverSettings.updateSettings({
+        homer: {
+          statsResetAt: "2026-04-13T10:15:00.000Z",
+        },
+      });
+
+      assert.deepEqual(next.homer, {
+        enabled: true,
+        statsResetAt: "2026-04-13T10:15:00.000Z",
       });
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );

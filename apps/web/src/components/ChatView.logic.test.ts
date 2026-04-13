@@ -16,6 +16,13 @@ import {
 } from "./ChatView.logic";
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
+const HOMER_THREAD_LINKAGE = {
+  homerSourceThreadId: null,
+  homerSuccessorThreadId: null,
+  homerTransitionKind: null,
+  homerTaskAnchor: null,
+  homerManagedWorkState: null,
+} as const;
 
 describe("deriveComposerSendState", () => {
   it("treats expired terminal pills as non-sendable content", () => {
@@ -226,6 +233,7 @@ const makeThread = (input?: {
     : null,
   branch: null,
   worktreePath: null,
+  ...HOMER_THREAD_LINKAGE,
   turnDiffSummaries: [],
   activities: [],
 });
@@ -271,6 +279,11 @@ function setStoreThreads(threads: ReadonlyArray<ReturnType<typeof makeThread>>) 
           updatedAt: thread.updatedAt,
           branch: thread.branch,
           worktreePath: thread.worktreePath,
+          homerSourceThreadId: thread.homerSourceThreadId,
+          homerSuccessorThreadId: thread.homerSuccessorThreadId,
+          homerTransitionKind: thread.homerTransitionKind,
+          homerTaskAnchor: thread.homerTaskAnchor,
+          homerManagedWorkState: thread.homerManagedWorkState,
         },
       ]),
     ),
@@ -467,6 +480,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       latestTurn: previousLatestTurn,
       branch: null,
       worktreePath: null,
+      ...HOMER_THREAD_LINKAGE,
       turnDiffSummaries: [],
       activities: [],
     });
@@ -504,6 +518,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       latestTurn: previousLatestTurn,
       branch: null,
       worktreePath: null,
+      ...HOMER_THREAD_LINKAGE,
       turnDiffSummaries: [],
       activities: [],
     });
@@ -550,6 +565,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       latestTurn: previousLatestTurn,
       branch: null,
       worktreePath: null,
+      ...HOMER_THREAD_LINKAGE,
       turnDiffSummaries: [],
       activities: [],
     });

@@ -199,6 +199,7 @@ export interface TestProviderAdapterHarness {
 
 interface MakeTestProviderAdapterHarnessOptions {
   readonly provider?: ProviderKind;
+  readonly defaultTurnResponse?: TestTurnResponse;
 }
 
 function nowIso(): string {
@@ -225,6 +226,7 @@ function missingSessionEffect(
 export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapterHarnessOptions) =>
   Effect.gen(function* () {
     const provider = options?.provider ?? "codex";
+    const defaultTurnResponse = options?.defaultTurnResponse;
     const runtimeEvents = yield* Queue.unbounded<ProviderRuntimeEvent>();
     let sessionCount = 0;
     const sessions = new Map<ThreadId, SessionState>();
@@ -291,7 +293,7 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
         const turnCount = state.turnCount;
         const turnId = TurnId.make(`turn-${turnCount}`);
 
-        const response = state.queuedResponses.shift();
+        const response = state.queuedResponses.shift() ?? defaultTurnResponse;
         if (!response) {
           return yield* new ProviderAdapterValidationError({
             provider,

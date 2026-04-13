@@ -63,6 +63,13 @@ import {
   type SessionCredentialChange,
 } from "./auth/Services/SessionCredentialService";
 import { respondToAuthError } from "./auth/http";
+const HOMER_THREAD_LINKAGE = {
+  homerSourceThreadId: null,
+  homerSuccessorThreadId: null,
+  homerTransitionKind: null,
+  homerTaskAnchor: null,
+  homerManagedWorkState: null,
+} as const;
 
 function toAuthAccessStreamEvent(
   change: BootstrapCredentialChange | SessionCredentialChange,
@@ -373,6 +380,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 interactionMode: bootstrap.createThread.interactionMode,
                 branch: bootstrap.createThread.branch,
                 worktreePath: bootstrap.createThread.worktreePath,
+                ...HOMER_THREAD_LINKAGE,
                 createdAt: bootstrap.createThread.createdAt,
               });
               createdThread = true;
@@ -444,11 +452,12 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 threadId: command.threadId,
                 createdAt: command.createdAt,
                 ...(command.reason ? { reason: command.reason } : {}),
+                ...(command.executionPolicy ? { executionPolicy: command.executionPolicy } : {}),
               });
 
               if (result === "disabled") {
                 return yield* new OrchestrationDispatchCommandError({
-                  message: "Enable T3Homer in Settings before running a manual Homer test.",
+                  message: "Enable T3 Homer in Settings before running a manual Homer test.",
                 });
               }
 
@@ -524,6 +533,19 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             Effect.gen(function* () {
               if (command.type === "thread.homer.trigger") {
                 return yield* dispatchHomerTriggerCommand(command);
+              }
+              if (command.type === "thread.turn.start") {
+                const homerResult = yield* t3HomerSupervisor.handleUserTurn({
+                  threadId: command.threadId,
+                  text: command.message.text,
+                  createdAt: command.createdAt,
+                });
+                if (homerResult === "handled") {
+                  const snapshot = yield* projectionSnapshotQuery.getSnapshot();
+                  return {
+                    sequence: snapshot.snapshotSequence,
+                  };
+                }
               }
               const normalizedCommand = yield* normalizeDispatchCommand(command);
               const result = yield* dispatchNormalizedCommand(normalizedCommand);

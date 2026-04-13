@@ -56,7 +56,7 @@ import {
 } from "@t3tools/contracts/settings";
 import { usePrimaryEnvironmentId } from "../environments/primary";
 import { isElectron } from "../env";
-import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
+import { APP_BASE_NAME, APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isLinuxPlatform, isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
 import {
@@ -129,6 +129,7 @@ import {
   resolveProjectStatusIndicator,
   resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
+  resolveHomerSidebarLabel,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
   orderItemsByPreferredIds,
@@ -166,6 +167,33 @@ const SIDEBAR_LIST_ANIMATION_OPTIONS = {
 } as const;
 const EMPTY_THREAD_JUMP_LABELS = new Map<string, string>();
 const HOMER_ACTIVITY_KIND_SET = new Set<string>(Object.values(T3_HOMER_ACTIVITY_KINDS));
+
+function readHomerExecutionPolicy(
+  payload: unknown,
+): "restart_in_place" | "spawn_successor_thread" | null {
+  if (payload === null || typeof payload !== "object") {
+    return null;
+  }
+
+  const executionPolicy = (payload as { executionPolicy?: unknown }).executionPolicy;
+  return executionPolicy === "restart_in_place" || executionPolicy === "spawn_successor_thread"
+    ? executionPolicy
+    : null;
+}
+
+function shouldCountHomerActivity(createdAt: string, statsResetAt: string | null): boolean {
+  if (statsResetAt === null) {
+    return true;
+  }
+
+  const activityTime = Date.parse(createdAt);
+  const resetTime = Date.parse(statsResetAt);
+  if (Number.isNaN(activityTime) || Number.isNaN(resetTime)) {
+    return true;
+  }
+
+  return activityTime > resetTime;
+}
 
 function threadJumpLabelMapsEqual(
   left: ReadonlyMap<string, string>,
@@ -442,6 +470,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const pr = resolveThreadPr(thread.branch, gitStatus.data);
   const prStatus = prStatusIndicator(pr);
   const terminalStatus = terminalStatusFromRunningIds(runningTerminalIds);
+  const homerLabel = resolveHomerSidebarLabel(thread);
   const isConfirmingArchive = confirmingArchiveThreadKey === threadKey && !isThreadRunning;
   const threadMetaClassName = isConfirmingArchive
     ? "pointer-events-none opacity-0"
@@ -741,14 +770,27 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                     {jumpLabel}
                   </span>
                 ) : (
-                  <span
-                    className={`text-[10px] ${
-                      isHighlighted
-                        ? "text-foreground/72 dark:text-foreground/82"
-                        : "text-muted-foreground/40"
-                    }`}
-                  >
-                    {formatRelativeTimeLabel(thread.updatedAt ?? thread.createdAt)}
+                  <span className="inline-flex items-center gap-1">
+                    {homerLabel && (
+                      <span
+                        className={`rounded border px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide ${
+                          isHighlighted
+                            ? "border-border/70 text-foreground/72 dark:text-foreground/82"
+                            : "border-border/40 text-muted-foreground/70"
+                        }`}
+                      >
+                        {homerLabel}
+                      </span>
+                    )}
+                    <span
+                      className={`text-[10px] ${
+                        isHighlighted
+                          ? "text-foreground/72 dark:text-foreground/82"
+                          : "text-muted-foreground/40"
+                      }`}
+                    >
+                      {formatRelativeTimeLabel(thread.updatedAt ?? thread.createdAt)}
+                    </span>
                   </span>
                 )}
               </span>
@@ -1725,7 +1767,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
             {project.name}
           </span>
         </SidebarMenuButton>
-        {/* Environment badge – visible by default, crossfades with the
+        {/* Environment badge â€“ visible by default, crossfades with the
             "new thread" button on hover using the same pointer-events +
             opacity pattern as the thread row archive/timestamp swap. */}
         {project.environmentPresence === "remote-only" && (
@@ -1961,7 +2003,7 @@ const SidebarChromeHeader = memo(function SidebarChromeHeader({
             >
               <T3Wordmark />
               <span className="truncate text-sm font-medium tracking-tight text-muted-foreground">
-                Code
+                {APP_BASE_NAME}
               </span>
               <span className="rounded-full bg-muted/50 px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-[0.18em] text-muted-foreground/60">
                 {APP_STAGE_LABEL}
@@ -2015,9 +2057,12 @@ const HomerStatusPill = memo(function HomerStatusPill() {
   const settings = useSettings();
   const threads = useStore(useShallow(selectThreadsAcrossEnvironments));
   const navigate = useNavigate();
+  const homerStatsResetAt = settings.homer.statsResetAt;
 
   const homerStats = useMemo(() => {
     let started = 0;
+    let restarts = 0;
+    let successors = 0;
     let ended = 0;
     let interrupted = 0;
     let escalated = 0;
@@ -2027,9 +2072,20 @@ const HomerStatusPill = memo(function HomerStatusPill() {
         if (!HOMER_ACTIVITY_KIND_SET.has(activity.kind)) {
           continue;
         }
+        if (!shouldCountHomerActivity(activity.createdAt, homerStatsResetAt)) {
+          continue;
+        }
         switch (activity.kind) {
           case T3_HOMER_ACTIVITY_KINDS.sessionStarted:
             started += 1;
+            switch (readHomerExecutionPolicy(activity.payload)) {
+              case "restart_in_place":
+                restarts += 1;
+                break;
+              case "spawn_successor_thread":
+                successors += 1;
+                break;
+            }
             break;
           case T3_HOMER_ACTIVITY_KINDS.sessionEnded:
             ended += 1;
@@ -2044,11 +2100,10 @@ const HomerStatusPill = memo(function HomerStatusPill() {
       }
     }
 
-    return { started, ended, interrupted, escalated };
-  }, [threads]);
+    return { started, restarts, successors, ended, interrupted, escalated };
+  }, [homerStatsResetAt, threads]);
 
   const isEnabled = settings.homer.enabled;
-  const handoffCount = homerStats.started;
   const indicatorClass = isEnabled
     ? homerStats.escalated > 0
       ? "bg-amber-500"
@@ -2056,11 +2111,13 @@ const HomerStatusPill = memo(function HomerStatusPill() {
     : "bg-zinc-400/70";
   const detail = isEnabled
     ? [
-        `${homerStats.started} started`,
+        `${homerStats.restarts} same-thread handoffs`,
+        `${homerStats.successors} new-thread handoffs`,
         `${homerStats.ended} ended`,
         `${homerStats.interrupted} interrupted`,
         `${homerStats.escalated} escalated`,
-      ].join(" · ")
+        ...(homerStatsResetAt ? [`reset ${formatRelativeTimeLabel(homerStatsResetAt)}`] : []),
+      ].join(" | ")
     : "Enable Homer in Settings to let it supervise sessions in the background.";
 
   const handleClick = useCallback(() => {
@@ -2074,7 +2131,7 @@ const HomerStatusPill = memo(function HomerStatusPill() {
           <button
             type="button"
             onClick={handleClick}
-            className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-2.5 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="flex w-full flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg border border-border/70 bg-background/70 px-2.5 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             aria-label="Open Homer settings"
           />
         }
@@ -2082,11 +2139,14 @@ const HomerStatusPill = memo(function HomerStatusPill() {
         <span className={`size-2 rounded-full ${indicatorClass}`} />
         <CloudIcon className="size-3.5" />
         <span className="font-medium text-foreground">{isEnabled ? "Homer on" : "Homer off"}</span>
-        <span className="truncate">
-          {isEnabled
-            ? `${handoffCount} handoff${handoffCount === 1 ? "" : "s"}`
-            : "background supervision disabled"}
-        </span>
+        {isEnabled ? (
+          <span className="flex basis-full min-w-0 flex-col pl-5 leading-tight">
+            <span className="truncate">Same-thread {homerStats.restarts}</span>
+            <span className="truncate">New-thread {homerStats.successors}</span>
+          </span>
+        ) : (
+          <span className="basis-full truncate pl-5">background supervision disabled</span>
+        )}
       </TooltipTrigger>
       <TooltipPopup>{detail}</TooltipPopup>
     </Tooltip>
@@ -2492,7 +2552,7 @@ export default function Sidebar() {
     });
   }, [projectOrder, projects]);
 
-  // Build a mapping from physical project key → logical project key for
+  // Build a mapping from physical project key â†’ logical project key for
   // cross-environment grouping.  Projects that share a repositoryIdentity
   // canonicalKey are treated as one logical project in the sidebar.
   const physicalToLogicalKey = useMemo(() => {

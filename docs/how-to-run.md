@@ -9,7 +9,7 @@ bun install
 bun run start
 ```
 
-That launches the standalone `T3Homer` Electron wrapper.
+That launches the standalone `T3 Homer` Electron wrapper.
 
 ## Requirements
 
@@ -28,4 +28,4 @@ That launches the standalone `T3Homer` Electron wrapper.
 
 - `bun run start` is the intended local default and should open the desktop app directly.
 - The server-only path is still available, but it is no longer the default startup mode.
-- In the desktop app, `Settings -> General` now includes `Interface scale` and `T3Homer`.
+- In the desktop app, `Settings -> General` now includes `Interface scale` and `T3 Homer`.

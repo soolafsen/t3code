@@ -156,6 +156,13 @@ export const getAutoBootstrapDefaultModelSelection = (): ModelSelection => ({
   provider: "codex",
   model: DEFAULT_MODEL_BY_PROVIDER.codex,
 });
+const HOMER_THREAD_LINKAGE = {
+  homerSourceThreadId: null,
+  homerSuccessorThreadId: null,
+  homerTransitionKind: null,
+  homerTaskAnchor: null,
+  homerManagedWorkState: null,
+} as const;
 
 const autoBootstrapWelcome = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig;
@@ -210,6 +217,7 @@ const autoBootstrapWelcome = Effect.gen(function* () {
           runtimeMode: "full-access",
           branch: null,
           worktreePath: null,
+          ...HOMER_THREAD_LINKAGE,
           createdAt,
         });
         bootstrapProjectId = nextProjectId;

@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ApprovalRequestId,
+  EventId,
   ProviderKind,
   type OrchestrationEvent,
   type OrchestrationThread,
@@ -60,6 +61,7 @@ import {
 } from "../src/orchestration/Services/OrchestrationEngine.ts";
 import { OrchestrationReactor } from "../src/orchestration/Services/OrchestrationReactor.ts";
 import { T3HomerSupervisor } from "../src/orchestration/Services/T3HomerSupervisor.ts";
+import { T3HomerSupervisorLive } from "../src/orchestration/Layers/T3HomerSupervisor.ts";
 import { ProjectionSnapshotQuery } from "../src/orchestration/Services/ProjectionSnapshotQuery.ts";
 import {
   RuntimeReceiptBus,
@@ -216,6 +218,7 @@ export interface OrchestrationIntegrationHarness {
 interface MakeOrchestrationIntegrationHarnessOptions {
   readonly provider?: ProviderKind;
   readonly realCodex?: boolean;
+  readonly realHomer?: boolean;
 }
 
 export const makeOrchestrationIntegrationHarness = (
@@ -227,10 +230,45 @@ export const makeOrchestrationIntegrationHarness = (
 
     const provider = options?.provider ?? "codex";
     const useRealCodex = options?.realCodex === true;
+    const useRealHomer = options?.realHomer === true;
+    const fallbackTurnResponse =
+      useRealHomer && !useRealCodex
+        ? {
+            events: [
+              {
+                type: "turn.started",
+                eventId: EventId.make("evt-homer-default-turn-started"),
+                provider,
+                createdAt: "2026-04-13T10:00:00.000Z",
+                threadId: "thread-fallback",
+                turnId: "turn-fallback",
+              },
+              {
+                type: "message.delta",
+                eventId: EventId.make("evt-homer-default-message"),
+                provider,
+                createdAt: "2026-04-13T10:00:00.050Z",
+                threadId: "thread-fallback",
+                turnId: "turn-fallback",
+                delta: "Auto continuation completed.\n",
+              },
+              {
+                type: "turn.completed",
+                eventId: EventId.make("evt-homer-default-turn-completed"),
+                provider,
+                createdAt: "2026-04-13T10:00:00.100Z",
+                threadId: "thread-fallback",
+                turnId: "turn-fallback",
+                status: "completed",
+              },
+            ],
+          }
+        : undefined;
     const adapterHarness = useRealCodex
       ? null
       : yield* makeTestProviderAdapterHarness({
           provider,
+          ...(fallbackTurnResponse ? { defaultTurnResponse: fallbackTurnResponse } : {}),
         });
     const fakeRegistry = adapterHarness
       ? Layer.succeed(ProviderAdapterRegistry, {
@@ -302,7 +340,15 @@ export const makeOrchestrationIntegrationHarness = (
       providerLayer,
       RuntimeReceiptBusTest,
     );
-    const serverSettingsLayer = ServerSettingsService.layerTest();
+    const serverSettingsLayer = ServerSettingsService.layerTest(
+      useRealHomer
+        ? {
+            homer: {
+              enabled: true,
+            },
+          }
+        : {},
+    );
     const runtimeIngestionLayer = ProviderRuntimeIngestionLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(serverSettingsLayer),
@@ -348,24 +394,29 @@ export const makeOrchestrationIntegrationHarness = (
       ),
       Layer.provideMerge(WorkspacePathsLive),
     );
+    const t3HomerSupervisorLayer = useRealHomer
+      ? T3HomerSupervisorLive.pipe(
+          Layer.provideMerge(runtimeServicesLayer),
+          Layer.provideMerge(serverSettingsLayer),
+        )
+      : Layer.succeed(T3HomerSupervisor, {
+          start: () => Effect.void,
+          drain: Effect.void,
+          handleUserTurn: () => Effect.succeed("pass_through" as const),
+          forceHandoff: () => Effect.succeed("triggered" as const),
+        });
     const orchestrationReactorLayer = OrchestrationReactorLive.pipe(
       Layer.provideMerge(runtimeIngestionLayer),
       Layer.provideMerge(providerCommandReactorLayer),
       Layer.provideMerge(checkpointReactorLayer),
-      Layer.provideMerge(
-        Layer.succeed(T3HomerSupervisor, {
-          start: () => Effect.void,
-          drain: Effect.void,
-          forceHandoff: () => Effect.succeed("triggered" as const),
-        }),
-      ),
+      Layer.provideMerge(t3HomerSupervisorLayer),
     );
     const layer = Layer.empty.pipe(
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(orchestrationReactorLayer),
       Layer.provide(persistenceLayer),
       Layer.provideMerge(RepositoryIdentityResolverLive),
-      Layer.provideMerge(ServerSettingsService.layerTest()),
+      Layer.provideMerge(serverSettingsLayer),
       Layer.provideMerge(ServerConfig.layerTest(workspaceDir, rootDir)),
       Layer.provideMerge(NodeServices.layer),
     );

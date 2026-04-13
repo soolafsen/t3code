@@ -12,9 +12,12 @@ import {
   ProjectId,
   ProviderInteractionMode,
   RuntimeMode,
+  T3HomerManagedWorkState,
+  T3HomerTaskAnchor,
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
+import { T3HomerTransitionKind } from "@t3tools/contracts";
 import { Option, Schema, Context } from "effect";
 import type { Effect } from "effect";
 
@@ -29,6 +32,11 @@ export const ProjectionThread = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
+  homerSourceThreadId: Schema.NullOr(ThreadId),
+  homerSuccessorThreadId: Schema.NullOr(ThreadId),
+  homerTransitionKind: Schema.NullOr(T3HomerTransitionKind),
+  homerTaskAnchor: Schema.NullOr(T3HomerTaskAnchor),
+  homerManagedWorkState: Schema.NullOr(T3HomerManagedWorkState),
   latestTurnId: Schema.NullOr(TurnId),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,

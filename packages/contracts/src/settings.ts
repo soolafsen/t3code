@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
-import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas";
+import { IsoDateTime, TrimmedNonEmptyString, TrimmedString } from "./baseSchemas";
 import {
   ClaudeModelOptions,
   CodexModelOptions,
@@ -89,6 +89,7 @@ export type ObservabilitySettings = typeof ObservabilitySettings.Type;
 
 export const T3HomerSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  statsResetAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
 });
 export type T3HomerSettings = typeof T3HomerSettings.Type;
 
@@ -186,6 +187,7 @@ export const ServerSettingsPatch = Schema.Struct({
   homer: Schema.optionalKey(
     Schema.Struct({
       enabled: Schema.optionalKey(Schema.Boolean),
+      statsResetAt: Schema.optionalKey(Schema.NullOr(IsoDateTime)),
     }),
   ),
   observability: Schema.optionalKey(

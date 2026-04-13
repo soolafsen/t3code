@@ -458,6 +458,46 @@ describe("GeneralSettingsPanel observability", () => {
     await expect.element(page.getByText("100%")).toBeInTheDocument();
   });
 
+  it("resets Homer counts from the settings panel", async () => {
+    const updateSettings = vi
+      .fn<LocalApi["server"]["updateSettings"]>()
+      .mockResolvedValue(DEFAULT_SERVER_SETTINGS);
+    window.nativeApi = {
+      server: {
+        updateSettings,
+      },
+    } as unknown as LocalApi;
+
+    setServerConfigSnapshot({
+      ...createBaseServerConfig(),
+      settings: {
+        ...DEFAULT_SERVER_SETTINGS,
+        homer: {
+          enabled: true,
+          statsResetAt: null,
+        },
+      },
+    });
+
+    mounted = await render(
+      <AppAtomRegistryProvider>
+        <GeneralSettingsPanel />
+      </AppAtomRegistryProvider>,
+    );
+
+    await expect.element(page.getByRole("button", { name: "Reset counts" })).toBeInTheDocument();
+    await page.getByRole("button", { name: "Reset counts" }).click();
+
+    await vi.waitFor(() => {
+      expect(updateSettings).toHaveBeenCalledWith({
+        homer: expect.objectContaining({
+          enabled: true,
+          statsResetAt: expect.any(String),
+        }),
+      });
+    });
+  });
+
   it("creates and shows a pairing link when network access is enabled", async () => {
     window.desktopBridge = createDesktopBridgeStub({
       serverExposureState: {
@@ -674,7 +714,7 @@ describe("GeneralSettingsPanel observability", () => {
     await networkAccessToggle.click();
     await expect.element(page.getByText("Enable network access?")).toBeInTheDocument();
     await expect
-      .element(page.getByText("T3Homer will restart to expose this environment over the network."))
+      .element(page.getByText("T3 Homer will restart to expose this environment over the network."))
       .toBeInTheDocument();
     await page.getByRole("button", { name: "Restart and enable", exact: true }).click();
     await vi.waitFor(() => {
