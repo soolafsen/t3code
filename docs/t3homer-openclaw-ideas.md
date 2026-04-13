@@ -1,78 +1,152 @@
-# T3 Homer: OpenClaw Ideas to Steal
+# T3 Homer OpenClaw-Inspired Continuity Plan (Agent-Ready)
 
-This note captures practical ideas from OpenClaw that are worth adopting in Homer, with emphasis on continuity across compaction/session rotation.
+This document is an actionable implementation brief for borrowing specific OpenClaw continuity ideas in Homer.
 
-## Why This Exists
+## Goal
 
-We observed a real gap:
+Fix the current continuity gap:
 
-- Homer can preserve the original assignment across session changes.
-- But a mid-session instruction update (for example, a skill update) can be lost across restart/successor transitions.
+- Original assignment survives restarts/successors.
+- Mid-session instruction updates (for example skill updates) can still be lost.
 
-So we need better continuity for *instruction deltas*, not just base objective continuity.
+Success means both original objective and later authoritative deltas survive across:
 
-## High-Value Ideas to Borrow Now
+- restart-in-place
+- successor-thread promotion
+
+## Scope (Do This)
+
+Implement these items:
 
 1. Revisioned authoritative assignment state.
-- Keep a `revision` counter and `updatedAt` on Homer task authority.
-- Every real user instruction update increments revision.
-- Restarts/successor handoffs always carry the latest revision, not just initial objective.
+2. Pre-transition deterministic instruction snapshot.
+3. Continuity prompt block that includes latest deltas.
+4. Minimal observability for revision/snapshot usage.
+5. Regression tests that prove mid-session updates survive transitions.
 
-2. Pre-handoff memory flush.
-- Before restart/successor transition, persist a deterministic "instruction delta snapshot" from recent authoritative user turns.
-- Keep it structured (not freeform model summary).
+## Out Of Scope (Do Not Do In This Slice)
 
-3. Tail-context continuity block.
-- In continuation/handoff prompts, include:
-  - base objective
-  - latest instruction updates (recent N deltas)
-  - active constraints/non-goals
-- This mirrors OpenClaw's "summary + recent tail" continuity model.
+- No new explicit `compact now` command.
+- No provider-specific compaction orchestration logic.
+- No model-generated memory summaries.
+- No broad UI/dashboard work.
+- No checkpoint-reset automation in this slice.
 
-4. Strong lifecycle observability.
-- Add explicit activities/metrics for:
-  - authority revision changed
-  - pre-handoff snapshot written
-  - handoff prompt revision used
+## OpenClaw Idea Mapping
 
-## Should Homer Proactively Call Compact Itself?
+1. OpenClaw-style explicit continuity state.
+- Homer equivalent: revisioned authoritative task anchor.
 
-Short answer: not needed right now.
+2. OpenClaw-style pre-compaction/pre-transition memory handling.
+- Homer equivalent: deterministic instruction delta snapshot before restart/successor.
 
-Reasoning:
+3. OpenClaw-style summary + tail context.
+- Homer equivalent: base objective + recent authoritative deltas in handoff/continuation prompts.
 
-- Homer already pre-empts context pressure by monitoring `thread.token-usage.updated` and preparing handoff at threshold (`HOMER_PREPARE_USAGE_RATIO`).
-- Homer already reacts to provider compaction via `thread.state.changed` (`compacted`) and rotates authority.
-- Codex adapter capability is already modeled as auto-compacting (`compactsAutomatically: true`).
+## Why Explicit Self-Compaction Is Deferred
 
-Given that, an explicit "compact now" command is optional and not the best fix for the current bug.
+Do not add it now.
 
-Current bug is about instruction continuity, not missing compaction triggers.
+Rationale:
 
-## When to Revisit Explicit Self-Compaction
+- Homer already monitors `thread.token-usage.updated` and prepares handoff on threshold.
+- Homer already reacts to provider compaction via `thread.state.changed` (`compacted`).
+- Codex adapter already reports auto-compaction capability (`compactsAutomatically: true`).
 
-Consider adding an explicit compact command only if all are true:
+Current issue is continuity of instruction deltas, not missing compaction triggers.
 
-1. Provider exposes a stable cross-provider compact API.
-2. We can prove lower failure rate vs current preemptive handoff path.
-3. We can keep deterministic behavior and avoid provider-specific drift.
+Revisit only when:
 
-If added, it should be:
+1. There is a stable cross-provider compact API.
+2. Data shows explicit compaction beats current handoff behavior.
+3. Determinism remains intact.
 
-- capability-gated per provider
-- best-effort
-- followed by the same authoritative continuity snapshot flow
+## Implementation Tasks
 
-## Proposed Homer Implementation Order
+### Task 1: Revisioned Authoritative State
 
-1. Authority revision + latest-authoritative-message tracking.
-2. Pre-handoff deterministic instruction delta snapshot.
-3. Include delta snapshot in restart and successor prompts.
-4. Add regression tests for "mid-session instruction update survives restart/successor."
-5. Only then evaluate optional explicit self-compaction.
+Add fields to Homer authoritative state:
 
-## Bottom Line
+- `revision: number`
+- `updatedAt: string`
+- `authoritativeUserMessageId` stays authoritative and must move forward on real instruction changes.
 
-Steal OpenClaw's continuity ideas around state revision and pre-transition memory handling.
+Behavior:
 
-Do not prioritize explicit self-compaction yet; it is not the primary fix for the observed "skill update forgotten" issue.
+- Increment revision on real instruction change.
+- Do not increment for status-only managed follow-ups.
+- Persist in projected thread meta state.
+
+### Task 2: Deterministic Instruction Snapshot
+
+Before restart/successor transitions:
+
+- Build structured snapshot from recent authoritative non-synthetic user messages.
+- Bound size deterministically (for example latest 3 deltas).
+- Persist snapshot in Homer metadata or handoff payload.
+
+Suggested shape:
+
+- `instructionDeltas: string[]`
+- `snapshotRevision: number`
+- `createdAt: string`
+
+### Task 3: Continuity Prompt Block
+
+In both managed continuation and successor handoff prompts include:
+
+- objective
+- constraints
+- non-goals
+- authority revision
+- instruction delta snapshot
+
+This block must be deterministic and always included when Homer owns authority.
+
+### Task 4: Observability
+
+Add explicit Homer activities/metrics:
+
+- revision updated
+- snapshot written
+- snapshot/revision consumed in handoff/continuation prompt
+
+## Target Files (Expected)
+
+- `apps/server/src/orchestration/Layers/T3HomerSupervisor.ts`
+- `packages/contracts/src/t3homer.ts` (if schema extensions needed)
+- `packages/contracts/src/orchestration.ts` (if projected contract changes needed)
+- `apps/server/src/orchestration/Layers/T3HomerSupervisor.test.ts`
+- integration tests only if needed for transition-level coverage
+
+## Test Plan (Required)
+
+Add/adjust tests for:
+
+1. Mid-session instruction update survives restart-in-place.
+2. Mid-session instruction update survives successor-thread handoff.
+3. Revision increments on real instruction updates, not managed status checks.
+4. Continuity prompt carries latest revision + deltas.
+
+## Acceptance Criteria
+
+1. Authoritative revision is persisted and increases only on true instruction changes.
+2. Restart-in-place carries latest deltas, not just original objective.
+3. Successor handoff carries latest deltas, not just original objective.
+4. Existing stop/interrupt behavior remains unchanged.
+5. Existing deterministic managed-follow-up interception remains unchanged.
+
+## Run Before Merge
+
+- `bun fmt`
+- `bun lint`
+- `bun typecheck`
+- targeted Homer tests
+
+## Execution Order
+
+1. Add schema/state fields.
+2. Add deterministic snapshot builder.
+3. Wire snapshot into both transition prompts.
+4. Add tests.
+5. Validate and ship.
