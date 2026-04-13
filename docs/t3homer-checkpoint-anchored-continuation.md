@@ -100,6 +100,90 @@ These are likely high-value for T3 Homer:
 5. Compact observability surface.
    Emit small, consistent activities: anchor_selected, anchor_missing, resume_skipped_duplicate, budget_exhausted.
 
+## Actionable task list
+
+Implement in order. Keep each slice independently mergeable.
+
+### Slice 0: baseline guardrails (no behavior change)
+
+- [ ] Lock baseline coverage in `apps/server/src/orchestration/Layers/T3HomerSupervisor.test.ts` for current restart/successor behavior before adding anchor logic.
+- [ ] Add a short "feature flag off" assertion path for any new anchor logic to prove no regression when anchor state is absent.
+- [ ] Define max budget constants up front in `apps/server/src/orchestration/Layers/T3HomerSupervisor.ts` (`2` restart attempts + `1` successor promotion per assignment revision).
+
+### Slice 1: add explicit anchor + resume-ledger schemas
+
+- [ ] Add `T3HomerContinuationAnchor` schema to `packages/contracts/src/t3homer.ts` with:
+      `anchorCheckpointRef`, `anchorCheckpointTurnCount`, `anchorAssignmentRevision`, `anchorCreatedAt`, `anchorUnavailable`.
+- [ ] Add `T3HomerResumeLedger` schema to `packages/contracts/src/t3homer.ts` with:
+      `completedWorkHints`, `resumeNonce`, `lastAppliedNonce`, `updatedAt`.
+- [ ] Extend thread contracts in `packages/contracts/src/orchestration.ts`:
+      add `homerContinuationAnchor` and `homerResumeLedger` on thread snapshots and `thread.meta.update` payloads.
+- [ ] Update projector/decider plumbing for the new fields:
+      `apps/server/src/orchestration/decider.ts`, `apps/server/src/orchestration/projector.ts`,
+      `apps/server/src/orchestration/Layers/ProjectionPipeline.ts`.
+
+### Slice 2: persist new fields in projection storage
+
+- [ ] Add a migration to `apps/server/src/persistence/Migrations` for `projection_threads`:
+      `homer_continuation_anchor_json` and `homer_resume_ledger_json` nullable text columns.
+- [ ] Wire new columns through repository code:
+      `apps/server/src/persistence/Services/ProjectionThreads.ts` and
+      `apps/server/src/persistence/Layers/ProjectionThreads.ts`.
+- [ ] Wire snapshot query decoding/selects:
+      `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts`.
+- [ ] Add/adjust persistence tests in:
+      `apps/server/src/persistence/Layers/ProjectionRepositories.test.ts` and
+      `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.test.ts`.
+
+### Slice 3: authoritative anchor selection and prompt contract
+
+- [ ] Add anchor selection helper in `apps/server/src/orchestration/Layers/T3HomerSupervisor.ts`:
+      choose latest `ready` checkpoint, else set `anchorUnavailable`.
+- [ ] On restart/successor transitions, persist anchor via `thread.meta.update` before prompt injection.
+- [ ] Update continuation/handoff prompt builders to include strict anchor contract lines:
+      anchor ref + turn + revision, delta-only continuation, and no redo unless verification fails.
+- [ ] Add activity emissions for anchor outcomes:
+      `anchor_selected`, `anchor_missing`.
+
+### Slice 4: nonce idempotency and duplicate-injection suppression
+
+- [ ] Generate deterministic `resumeNonce` per intervention attempt in `T3HomerSupervisor`.
+- [ ] Persist ledger updates (`resumeNonce`, `lastAppliedNonce`) before and after managed prompt injection.
+- [ ] Skip duplicate continuation injection when nonce already applied; emit `resume_skipped_duplicate`.
+- [ ] Add deterministic unit tests for duplicate suppression in
+      `apps/server/src/orchestration/Layers/T3HomerSupervisor.test.ts`.
+
+### Slice 5: evidence-gated restart throttling + budget exhaustion
+
+- [ ] Classify intervention triggers as `hard` vs `soft` inside `T3HomerSupervisor` policy logic.
+- [ ] Block repeated soft-trigger interventions while managed work is active and no new hard evidence exists.
+- [ ] Enforce per-revision intervention budget; when exhausted, set `manual_attention` and stop auto-recovery churn.
+- [ ] Emit `budget_exhausted` activity with reason, revision, and attempt counters.
+- [ ] Add tests for:
+      soft-signal suppression,
+      hard-signal single-intervention per nonce/turn,
+      budget exhaustion path to `manual_attention`.
+
+### Slice 6: integration and rollout hardening
+
+- [ ] Add/extend integration scenarios in `apps/server/integration/orchestrationEngine.integration.test.ts` for:
+      anchor-based continuation after restart,
+      duplicate nonce suppression across repeated supervisor triggers,
+      budget exhaustion without infinite restart/successor loops.
+- [ ] Add one focused UI assertion (if surfaced) for anchor/manual-attention visibility in
+      `apps/web/src/components/Sidebar.logic.test.ts` or related Homer status tests.
+- [ ] Update docs that describe Homer behavior:
+      `docs/t3homer-status.md` and `docs/t3homer-endurance-next-steps.md` with anchor semantics once shipped.
+
+### Definition of done checklist
+
+- [ ] All new thread fields survive projection persistence round-trip.
+- [ ] Managed continuation prompts are anchor-qualified and delta-first.
+- [ ] Duplicate continuation injection is prevented by nonce checks.
+- [ ] Soft churn no longer causes repeated restarts during active managed work.
+- [ ] Budget exhaustion reliably lands in `manual_attention`.
+- [ ] `bun fmt`, `bun lint`, and `bun typecheck` pass.
+
 ## Non-goals
 
 - No model-written summaries/memory.
