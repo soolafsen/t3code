@@ -26,6 +26,26 @@ Homer follows a strict recovery path:
 
 Result: fewer stuck/looping sessions and less drift between user intent and resumed work.
 
+## Handover, "Session Memory", and Checkpoints
+
+Homer does not rely on hidden model memory between sessions. Its continuity comes from persisted, deterministic artifacts:
+
+- `homerTaskAnchor`: authoritative objective, source docs, constraints, non-goals, branch expectation, revision, and completion contract.
+- `instructionDeltaSnapshot`: compact recent instruction deltas tied to a specific revision.
+- `homerManagedWorkState`: whether Homer currently owns continuation (`active` or `manual_attention`) and under which execution policy.
+- `T3HomerHandoffPayload`: handoff package with objective context, verified done/not-done notes, next action, relevant files, and checkpoint reference.
+
+Checkpoint handling is explicit:
+
+- Every turn can produce a checkpoint summary with status (`ready`, `missing`, or `error`), touched files, turn count, and `checkpointRef`.
+- Homer uses checkpoint status as a deterministic control signal: healthy checkpoints support normal continuation, while missing/error checkpoints keep completion unverified and can trigger intervention/escalation.
+
+Other artifacts that make recovery auditable:
+
+- thread activity records for supervision/handoff/escalation events
+- successor linkage metadata (`homerSourceThreadId`, `homerSuccessorThreadId`, transition kind)
+- escalation evidence (trigger kind, attempt count, assignment revision, last known turn/checkpoint ref)
+
 ## What This Fork Adds
 
 - T3 Homer deterministic supervision

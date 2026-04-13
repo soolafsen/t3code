@@ -31,6 +31,60 @@ These principles still define T3 Homer:
 - prefer visible, auditable interventions over silent magic
 - do not turn Homer into a second agent competing with the provider
 
+## How Continuity Is Carried Today
+
+When people say "session memory" in Homer, this is what it actually means: persisted orchestration state, not hidden model recall.
+
+### A. Authoritative continuity artifacts
+
+- `homerTaskAnchor` (thread metadata):
+  - objective
+  - source document paths
+  - constraints and non-goals
+  - branch expectation
+  - revision and authoritative user message id
+  - completion contract (`requiredExactCompletionPhrase`, completion checks)
+- `instructionDeltaSnapshot`:
+  - compact recent deltas from authoritative user instructions
+  - explicit snapshot revision + timestamp
+- `homerManagedWorkState`:
+  - `active` or `manual_attention`
+  - execution policy (`restart_in_place` or `spawn_successor_thread`)
+
+### B. Handoff payload contents
+
+On restart/successor transitions, Homer writes a deterministic handoff payload containing:
+
+- source thread id + execution policy
+- task anchor + instruction delta snapshot
+- verified done / verified not-done evidence
+- next action and verification still required
+- relevant file paths and checkpoint ref
+
+### C. Checkpoint model in practice
+
+Checkpoint summaries are first-class control signals, not passive logs.
+
+- each turn can produce `thread.turn-diff-completed` with status: `ready`, `missing`, or `error`
+- summaries include checkpoint turn count, checkpoint ref, touched files, and completion timestamp
+- Homer uses those statuses to decide:
+  - continue normally (`ready`)
+  - restart/escalate while keeping completion unverified (`missing` / `error`)
+  - include explicit checkpoint state in continuation and handoff prompts
+
+### D. Other auditable artifacts
+
+- thread activity timeline entries for supervision, handoff preparation, session stop/start, and escalation
+- successor linkage fields:
+  - `homerSourceThreadId`
+  - `homerSuccessorThreadId`
+  - `homerTransitionKind`
+- escalation evidence:
+  - trigger kind
+  - attempt count
+  - assignment revision
+  - last known turn id + checkpoint ref
+
 ## What Is Done
 
 ### 1. Desktop scaling
