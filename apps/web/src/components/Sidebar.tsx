@@ -1,4 +1,4 @@
-﻿import {
+import {
   ArchiveIcon,
   ArrowUpDownIcon,
   ChevronRightIcon,
@@ -2131,7 +2131,7 @@ const HomerStatusPill = memo(function HomerStatusPill() {
           <button
             type="button"
             onClick={handleClick}
-            className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-2.5 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="flex w-full flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg border border-border/70 bg-background/70 px-2.5 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             aria-label="Open Homer settings"
           />
         }
@@ -2139,11 +2139,14 @@ const HomerStatusPill = memo(function HomerStatusPill() {
         <span className={`size-2 rounded-full ${indicatorClass}`} />
         <CloudIcon className="size-3.5" />
         <span className="font-medium text-foreground">{isEnabled ? "Homer on" : "Homer off"}</span>
-        <span className="truncate">
-          {isEnabled
-            ? `Same-thread ${homerStats.restarts} | New-thread ${homerStats.successors}`
-            : "background supervision disabled"}
-        </span>
+        {isEnabled ? (
+          <span className="flex basis-full min-w-0 flex-col pl-5 leading-tight">
+            <span className="truncate">Same-thread {homerStats.restarts}</span>
+            <span className="truncate">New-thread {homerStats.successors}</span>
+          </span>
+        ) : (
+          <span className="basis-full truncate pl-5">background supervision disabled</span>
+        )}
       </TooltipTrigger>
       <TooltipPopup>{detail}</TooltipPopup>
     </Tooltip>

@@ -68,16 +68,30 @@
 
       #boot-shell-card {
         display: flex;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
-        width: 96px;
-        height: 96px;
+        gap: 8px;
+        width: 168px;
+        min-height: 96px;
       }
 
       #boot-shell-logo {
         width: 64px;
         height: 64px;
         object-fit: contain;
+      }
+
+      #boot-shell-greeting {
+        margin: 0;
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: 0.02em;
+        color: #737373;
+      }
+
+      html.dark #boot-shell-greeting {
+        color: #a3a3a3;
       }
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -93,6 +107,7 @@
       <div id="boot-shell">
         <div id="boot-shell-card" aria-label="T3 Homer splash screen">
           <img id="boot-shell-logo" src="/apple-touch-icon.png" alt="T3 Homer" />
+          <p id="boot-shell-greeting">Hello from T3 Homer</p>
         </div>
       </div>
     </div>
