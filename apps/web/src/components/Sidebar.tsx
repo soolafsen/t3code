@@ -1,4 +1,4 @@
-import {
+﻿import {
   ArchiveIcon,
   ArrowUpDownIcon,
   ChevronRightIcon,
@@ -1767,7 +1767,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
             {project.name}
           </span>
         </SidebarMenuButton>
-        {/* Environment badge – visible by default, crossfades with the
+        {/* Environment badge â€“ visible by default, crossfades with the
             "new thread" button on hover using the same pointer-events +
             opacity pattern as the thread row archive/timestamp swap. */}
         {project.environmentPresence === "remote-only" && (
@@ -2104,7 +2104,6 @@ const HomerStatusPill = memo(function HomerStatusPill() {
   }, [homerStatsResetAt, threads]);
 
   const isEnabled = settings.homer.enabled;
-  const handoffCount = homerStats.started;
   const indicatorClass = isEnabled
     ? homerStats.escalated > 0
       ? "bg-amber-500"
@@ -2112,14 +2111,13 @@ const HomerStatusPill = memo(function HomerStatusPill() {
     : "bg-zinc-400/70";
   const detail = isEnabled
     ? [
-        `${homerStats.started} started`,
-        `${homerStats.restarts} restarts`,
-        `${homerStats.successors} successors`,
+        `${homerStats.restarts} same-thread handoffs`,
+        `${homerStats.successors} new-thread handoffs`,
         `${homerStats.ended} ended`,
         `${homerStats.interrupted} interrupted`,
         `${homerStats.escalated} escalated`,
         ...(homerStatsResetAt ? [`reset ${formatRelativeTimeLabel(homerStatsResetAt)}`] : []),
-      ].join(" · ")
+      ].join(" | ")
     : "Enable Homer in Settings to let it supervise sessions in the background.";
 
   const handleClick = useCallback(() => {
@@ -2143,7 +2141,7 @@ const HomerStatusPill = memo(function HomerStatusPill() {
         <span className="font-medium text-foreground">{isEnabled ? "Homer on" : "Homer off"}</span>
         <span className="truncate">
           {isEnabled
-            ? `${handoffCount} handoff${handoffCount === 1 ? "" : "s"} R ${homerStats.restarts} : S ${homerStats.successors}`
+            ? `Same-thread ${homerStats.restarts} | New-thread ${homerStats.successors}`
             : "background supervision disabled"}
         </span>
       </TooltipTrigger>
@@ -2551,7 +2549,7 @@ export default function Sidebar() {
     });
   }, [projectOrder, projects]);
 
-  // Build a mapping from physical project key → logical project key for
+  // Build a mapping from physical project key â†’ logical project key for
   // cross-environment grouping.  Projects that share a repositoryIdentity
   // canonicalKey are treated as one logical project in the sidebar.
   const physicalToLogicalKey = useMemo(() => {
