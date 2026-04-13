@@ -353,6 +353,85 @@ describe("T3HomerSupervisor", () => {
     expect(harness.provider.counts().startedCount).toBe(1);
   });
 
+  it("ignores soft usage/warning handoff triggers while managed work is already active", async () => {
+    const harness = await createHarness();
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-13T09:00:00.000Z",
+        reason: "Start managed recovery once.",
+      }),
+    );
+
+    await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.homerManagedWorkState?.status === "active" &&
+        candidate.session?.status === "ready" &&
+        harness.provider.counts().startedCount === 1,
+    );
+
+    harness.provider.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-homer-soft-turn-started"),
+      provider: "codex",
+      createdAt: "2026-04-13T09:00:01.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-soft-usage-managed"),
+      payload: {
+        model: "gpt-5-codex",
+      },
+    });
+
+    harness.provider.emit({
+      type: "thread.token-usage.updated",
+      eventId: asEventId("evt-homer-soft-usage-managed"),
+      provider: "codex",
+      createdAt: "2026-04-13T09:00:05.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-soft-usage-managed"),
+      payload: {
+        usage: {
+          usedTokens: 90_000,
+          maxTokens: 100_000,
+        },
+      },
+    });
+
+    harness.provider.emit({
+      type: "runtime.warning",
+      eventId: asEventId("evt-homer-soft-warning-managed"),
+      provider: "codex",
+      createdAt: "2026-04-13T09:00:06.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-soft-usage-managed"),
+      payload: {
+        message: "Context usage is high.",
+      },
+    });
+
+    harness.provider.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-homer-soft-managed-complete"),
+      provider: "codex",
+      createdAt: "2026-04-13T09:00:07.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-soft-usage-managed"),
+      payload: {
+        state: "completed",
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const thread = await readThread(harness.engine);
+
+    expect(thread?.session?.status).toBe("ready");
+    expect(thread?.homerManagedWorkState?.status).toBe("active");
+    expect(harness.provider.counts().stoppedCount).toBe(1);
+    expect(harness.provider.counts().startedCount).toBe(1);
+  });
+
   it("interrupts and restarts immediately after provider compaction", async () => {
     const harness = await createHarness();
     const turnId = asTurnId("turn-1");
@@ -996,6 +1075,46 @@ describe("T3HomerSupervisor", () => {
     expect(thread.homerTransitionKind).toBeNull();
     expect(harness.provider.counts().stoppedCount).toBe(1);
     expect(harness.provider.counts().startedCount).toBe(1);
+  });
+
+  it("carries the latest non-ready checkpoint ref into managed continuation prompts", async () => {
+    const harness = await createHarness();
+    const missingCheckpointRef = checkpointRefForThreadTurn(asThreadId("thread-1"), 1);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.diff.complete",
+        commandId: CommandId.make("cmd-homer-missing-checkpoint-ref"),
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-missing-ref"),
+        completedAt: "2026-04-13T12:05:00.000Z",
+        checkpointRef: missingCheckpointRef,
+        status: "missing",
+        files: [],
+        checkpointTurnCount: 1,
+        createdAt: "2026-04-13T12:05:00.000Z",
+      }),
+    );
+
+    const thread = await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.session?.status === "ready" &&
+        candidate.messages.some(
+          (message) =>
+            message.role === "user" && message.text.includes("T3 Homer managed-work continuation."),
+        ),
+    );
+
+    const continuationPrompt =
+      thread.messages
+        .toReversed()
+        .find(
+          (message) =>
+            message.role === "user" && message.text.includes("T3 Homer managed-work continuation."),
+        )?.text ?? "";
+
+    expect(continuationPrompt).toContain(`Checkpoint ref: ${missingCheckpointRef}`);
   });
 
   it("promotes to successor thread after repeated failed restart-in-place recoveries", async () => {

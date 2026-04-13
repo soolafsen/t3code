@@ -648,7 +648,7 @@ function collectObservedThreadState(input: {
     relevantFilePaths: normalizeTrimmedValues(
       relevantCheckpoint?.files.slice(0, 12).map((file) => file.path) ?? [],
     ),
-    checkpointRef: latestReadyCheckpoint?.checkpointRef ?? null,
+    checkpointRef: relevantCheckpoint?.checkpointRef ?? null,
   };
 }
 
@@ -869,6 +869,11 @@ const make = Effect.gen(function* () {
       threads: readModel.threads,
       projects: readModel.projects,
     };
+  });
+
+  const isManagedWorkActive = Effect.fn("isManagedWorkActive")(function* (threadId: ThreadId) {
+    const resolved = yield* resolveThread(threadId);
+    return resolved.thread?.homerManagedWorkState !== null;
   });
 
   const appendActivity = Effect.fn("appendActivity")(function* (input: {
@@ -2230,6 +2235,9 @@ const make = Effect.gen(function* () {
       }
 
       case "thread.token-usage.updated": {
+        if (yield* isManagedWorkActive(event.threadId)) {
+          return;
+        }
         const maxTokens = event.payload.usage.maxTokens;
         if (!maxTokens || maxTokens <= 0) {
           return;
@@ -2248,6 +2256,9 @@ const make = Effect.gen(function* () {
       }
 
       case "runtime.warning": {
+        if (yield* isManagedWorkActive(event.threadId)) {
+          return;
+        }
         state.warningCount += 1;
         if (state.warningCount >= HOMER_WARNING_THRESHOLD) {
           yield* prepareHandoff({
