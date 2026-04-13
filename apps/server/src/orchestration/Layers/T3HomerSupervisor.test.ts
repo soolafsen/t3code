@@ -594,7 +594,7 @@ describe("T3HomerSupervisor", () => {
     expect(continuationPrompt).toContain("Use $collaboration-defaults and work autonomously.");
   });
 
-  it("preserves mid-session instruction updates across successor-thread handoffs", async () => {
+  it("preserves mid-session instruction updates across explicitly triggered successor-thread handoffs", async () => {
     const harness = await createHarness();
 
     await Effect.runPromise(
@@ -665,7 +665,8 @@ describe("T3HomerSupervisor", () => {
       harness.supervisor.forceHandoff({
         threadId: asThreadId("thread-1"),
         createdAt: "2026-04-13T10:13:00.000Z",
-        reason: "Second intervention should promote the updated instructions to a successor.",
+        reason: "Manual successor trigger should preserve the updated instructions.",
+        executionPolicy: "spawn_successor_thread",
       }),
     );
 

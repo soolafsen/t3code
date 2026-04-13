@@ -1055,8 +1055,7 @@ const make = Effect.gen(function* () {
     const inManagedWindow = input.thread.homerManagedWorkState !== null;
     if (!inManagedWindow) {
       return {
-        executionPolicy:
-          state.interventionCount >= 1 ? "spawn_successor_thread" : "restart_in_place",
+        executionPolicy: "restart_in_place",
         escalation: null,
       };
     }
