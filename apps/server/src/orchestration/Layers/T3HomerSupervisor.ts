@@ -2310,17 +2310,6 @@ const make = Effect.gen(function* () {
       case "turn.completed":
       case "turn.aborted": {
         state.pendingTurnRequestedAt = null;
-        if (event.type === "turn.completed") {
-          const resolved = yield* resolveThread(event.threadId);
-          const thread = resolved.thread;
-          if (thread !== null && thread.homerManagedWorkState !== null) {
-            const revision = getAssignmentRevision(thread, state);
-            syncRevisionTracking(state, revision);
-            state.restartAttemptsForRevision = 0;
-            state.lastSuccessfulCompletedTurnAtForRevision = event.createdAt;
-            state.runtimeFatalCountInManagedWindow = 0;
-          }
-        }
         if (state.supervisorState !== "prepare_handover") {
           return;
         }

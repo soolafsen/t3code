@@ -1154,6 +1154,18 @@ describe("T3HomerSupervisor", () => {
 
     await waitForThread(harness.engine, () => harness.provider.counts().startedCount === 1);
 
+    harness.provider.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-homer-missing-diff-2-completed"),
+      provider: "codex",
+      createdAt: "2026-04-13T12:02:30.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-missing-b"),
+      payload: {
+        state: "completed",
+      },
+    });
+
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.turn.diff.complete",
@@ -1170,6 +1182,18 @@ describe("T3HomerSupervisor", () => {
     );
 
     await waitForThread(harness.engine, () => harness.provider.counts().startedCount === 2);
+
+    harness.provider.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-homer-missing-diff-3-completed"),
+      provider: "codex",
+      createdAt: "2026-04-13T12:03:30.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-missing-c"),
+      payload: {
+        state: "completed",
+      },
+    });
 
     await Effect.runPromise(
       harness.engine.dispatch({
@@ -1265,7 +1289,7 @@ describe("T3HomerSupervisor", () => {
     expect(harness.provider.counts().stoppedCount).toBe(2);
   });
 
-  it("resets restart-attempt tracking after a successful completed turn", async () => {
+  it("resets restart-attempt tracking after a successful ready checkpoint", async () => {
     const harness = await createHarness();
 
     await Effect.runPromise(
@@ -1297,6 +1321,21 @@ describe("T3HomerSupervisor", () => {
         state: "completed",
       },
     });
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.diff.complete",
+        commandId: CommandId.make("cmd-homer-reset-success-diff"),
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-success-reset"),
+        completedAt: "2026-04-13T12:21:31.000Z",
+        checkpointRef: checkpointRefForThreadTurn(asThreadId("thread-1"), 3),
+        status: "ready",
+        files: [],
+        checkpointTurnCount: 3,
+        createdAt: "2026-04-13T12:21:31.000Z",
+      }),
+    );
 
     await Effect.runPromise(
       harness.supervisor.forceHandoff({
