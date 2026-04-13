@@ -20,7 +20,9 @@
     "start": "node dist/bin.mjs",
     "prepare": "effect-language-service patch",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:integration": "vitest run integration",
+    "test:integration:fast": "vitest run integration/orchestrationEngine.integration.test.ts --testNamePattern \"fast Homer regression\""
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.77",
