@@ -744,6 +744,134 @@ describe("T3HomerSupervisor", () => {
     );
   });
 
+  it("refreshes objective from a short actionable free-form instruction", async () => {
+    const harness = await createHarness();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-homer-short-freeform-base"),
+        threadId: asThreadId("thread-1"),
+        message: {
+          messageId: asMessageId("msg-homer-short-freeform-base"),
+          role: "user",
+          text: "Implement Homer stats docs update",
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: "2026-04-13T11:10:00.000Z",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-homer-short-freeform-update"),
+        threadId: asThreadId("thread-1"),
+        message: {
+          messageId: asMessageId("msg-homer-short-freeform-update"),
+          role: "user",
+          text: "Stack them vertically.",
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: "2026-04-13T11:11:00.000Z",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-13T11:12:00.000Z",
+        reason: "Verify short free-form objective continuity in managed handoff.",
+      }),
+    );
+
+    const thread = await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.session?.status === "ready" &&
+        candidate.homerTaskAnchor?.authoritativeUserMessageId ===
+          asMessageId("msg-homer-short-freeform-update") &&
+        candidate.messages.some(
+          (message) =>
+            message.role === "user" && message.text.includes("T3 Homer managed-work continuation."),
+        ),
+    );
+
+    const continuationPrompt =
+      thread.messages.find(
+        (message) =>
+          message.role === "user" && message.text.includes("T3 Homer managed-work continuation."),
+      )?.text ?? "";
+
+    expect(thread.homerTaskAnchor?.objective).toContain("Stack them vertically.");
+    expect(continuationPrompt).toContain("Objective: Stack them vertically.");
+  });
+
+  it("does not treat acknowledgments as authoritative instruction updates", async () => {
+    const harness = await createHarness();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-homer-ack-base"),
+        threadId: asThreadId("thread-1"),
+        message: {
+          messageId: asMessageId("msg-homer-ack-base"),
+          role: "user",
+          text: "Your task is implement the Homer safe fix.",
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: "2026-04-13T11:20:00.000Z",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-homer-ack"),
+        threadId: asThreadId("thread-1"),
+        message: {
+          messageId: asMessageId("msg-homer-ack"),
+          role: "user",
+          text: "Thanks.",
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: "2026-04-13T11:21:00.000Z",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-13T11:22:00.000Z",
+        reason: "Ensure acknowledgments do not replace authoritative assignment intent.",
+      }),
+    );
+
+    const thread = await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.session?.status === "ready" &&
+        candidate.messages.some(
+          (message) =>
+            message.role === "user" && message.text.includes("T3 Homer managed-work continuation."),
+        ),
+    );
+
+    expect(thread.homerTaskAnchor?.authoritativeUserMessageId).toBe(
+      asMessageId("msg-homer-ack-base"),
+    );
+    expect(thread.homerTaskAnchor?.objective).toContain("implement the Homer safe fix");
+  });
+
   it("preserves mid-session instruction updates across explicitly triggered successor-thread handoffs", async () => {
     const harness = await createHarness();
 
@@ -1046,6 +1174,83 @@ describe("T3HomerSupervisor", () => {
     expect(continuationPrompt).not.toContain("Are you still working on the tasks?");
   });
 
+  it("treats short resume nudges as managed follow-ups but leaves expanded instructions to user control", async () => {
+    const harness = await createHarness();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-homer-followup-base"),
+        threadId: asThreadId("thread-1"),
+        message: {
+          messageId: asMessageId("msg-homer-followup-base"),
+          role: "user",
+          text: "Your task is implement the Homer safe fix.",
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: "2026-04-13T10:30:00.000Z",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-13T10:31:00.000Z",
+        reason: "Prepare managed continuation before managed follow-up boundary checks.",
+      }),
+    );
+
+    await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.session?.status === "ready" &&
+        candidate.homerManagedWorkState?.status === "active",
+    );
+
+    const resumeResult = await Effect.runPromise(
+      harness.supervisor.handleUserTurn({
+        threadId: asThreadId("thread-1"),
+        text: "Continue from here.",
+        createdAt: "2026-04-13T10:32:00.000Z",
+      }),
+    );
+    expect(resumeResult).toBe("handled");
+
+    const resumedThread = await waitForThread(harness.engine, (candidate) =>
+      candidate.messages.some(
+        (message) =>
+          message.role === "user" &&
+          message.text.includes("Managed follow-up kind: resume_managed_work"),
+      ),
+    );
+    const continuationPrompt =
+      resumedThread.messages
+        .toReversed()
+        .find(
+          (message) =>
+            message.role === "user" &&
+            message.text.includes("Managed follow-up kind: resume_managed_work"),
+        )?.text ?? "";
+    expect(continuationPrompt).toContain("Managed follow-up received: Continue from here.");
+
+    const reclaimResult = await Effect.runPromise(
+      harness.supervisor.handleUserTurn({
+        threadId: asThreadId("thread-1"),
+        text: "Continue from here and only update the sidebar cards.",
+        createdAt: "2026-04-13T10:33:00.000Z",
+      }),
+    );
+    expect(reclaimResult).toBe("pass_through");
+
+    const releasedThread = await waitForThread(
+      harness.engine,
+      (candidate) => candidate.homerManagedWorkState === null,
+    );
+    expect(releasedThread.homerManagedWorkState).toBeNull();
+  });
+
   it("uses restart-in-place for the first missing-checkpoint recovery", async () => {
     const harness = await createHarness();
 
@@ -1115,6 +1320,54 @@ describe("T3HomerSupervisor", () => {
         )?.text ?? "";
 
     expect(continuationPrompt).toContain(`Checkpoint ref: ${missingCheckpointRef}`);
+    expect(continuationPrompt).toContain("Latest checkpoint status: missing (turn 1).");
+    expect(continuationPrompt).toContain(
+      "Completion gate: do not claim full completion while latest checkpoint is missing/error/unset.",
+    );
+  });
+
+  it("spells out error checkpoint status in managed continuation prompts", async () => {
+    const harness = await createHarness();
+    const errorCheckpointRef = checkpointRefForThreadTurn(asThreadId("thread-1"), 1);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.diff.complete",
+        commandId: CommandId.make("cmd-homer-error-checkpoint"),
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-error-ref"),
+        completedAt: "2026-04-13T12:06:00.000Z",
+        checkpointRef: errorCheckpointRef,
+        status: "error",
+        files: [],
+        checkpointTurnCount: 1,
+        createdAt: "2026-04-13T12:06:00.000Z",
+      }),
+    );
+
+    const thread = await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.session?.status === "ready" &&
+        candidate.messages.some(
+          (message) =>
+            message.role === "user" && message.text.includes("T3 Homer managed-work continuation."),
+        ),
+    );
+
+    const continuationPrompt =
+      thread.messages
+        .toReversed()
+        .find(
+          (message) =>
+            message.role === "user" && message.text.includes("T3 Homer managed-work continuation."),
+        )?.text ?? "";
+
+    expect(continuationPrompt).toContain(`Checkpoint ref: ${errorCheckpointRef}`);
+    expect(continuationPrompt).toContain("Latest checkpoint status: error (turn 1).");
+    expect(continuationPrompt).toContain(
+      "Latest checkpoint status is error. Treat completion as unverified until checkpoint capture succeeds.",
+    );
   });
 
   it("promotes to successor thread after repeated failed restart-in-place recoveries", async () => {

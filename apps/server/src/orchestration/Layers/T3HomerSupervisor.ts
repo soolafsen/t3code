@@ -53,7 +53,7 @@ const HOMER_STATUS_CHECK_PATTERNS = [
   /^(?:are you still working|are you still working on (?:the )?tasks|still working|status|status update|progress|progress update|working on (?:the )?tasks)\??$/i,
 ] as const;
 const HOMER_RESUME_MANAGED_WORK_PATTERNS = [
-  /^(?:continue|keep going|keep working|resume|pick up where you left off)\.?$/i,
+  /^(?:continue|continue from here|continue where you left off|keep going|keep working|resume|resume from here|resume where you left off|pick up where you left off)\.?$/i,
   /^(?:finish (?:it|the task|the tasks|the remaining tasks|the remaining work))\.?$/i,
   /^(?:look at|check|review) (?:your|the) tasks\.?$/i,
 ] as const;
@@ -356,6 +356,31 @@ function isHomerInjectedUserMessage(text: string): boolean {
   );
 }
 
+function formatLatestCheckpointStatus(thread: OrchestrationThread): string {
+  const latestCheckpoint = thread.checkpoints.at(-1);
+  if (!latestCheckpoint) {
+    return "none recorded yet";
+  }
+  return `${latestCheckpoint.status} (turn ${latestCheckpoint.checkpointTurnCount})`;
+}
+
+function buildPreflightGuardLines(input: {
+  readonly thread: OrchestrationThread;
+  readonly taskAnchor: T3HomerTaskAnchor;
+}): string[] {
+  const latestCheckpoint = input.thread.checkpoints.at(-1);
+  const checkpointStatus = latestCheckpoint?.status ?? null;
+
+  return [
+    "Preflight guards:",
+    `- Expected branch: ${input.taskAnchor.branchExpectation ?? "current branch context"}. Confirm before edits.`,
+    `- Latest checkpoint status: ${formatLatestCheckpointStatus(input.thread)}.`,
+    checkpointStatus === "ready"
+      ? "- Completion gate: only claim completion when repository state and checkpoint evidence still agree."
+      : "- Completion gate: do not claim full completion while latest checkpoint is missing/error/unset.",
+  ];
+}
+
 function extractSectionEntries(text: string, labels: ReadonlyArray<string>): string[] {
   const labelSet = new Set(labels.map((label) => label.toLowerCase()));
   const lines = text.split(/\r?\n/);
@@ -590,14 +615,17 @@ function getUserMessages(thread: OrchestrationThread): OrchestrationMessage[] {
 
 function getAuthoritativeUserMessages(thread: OrchestrationThread): OrchestrationMessage[] {
   const userMessages = getUserMessages(thread);
-  const nonSyntheticMessages = userMessages.filter(
+  const informativeMessages = userMessages.filter(
+    (message) => !HOMER_OBJECTIVE_ACK_ONLY_RE.test(normalizeMessageText(message.text)),
+  );
+  const nonSyntheticMessages = informativeMessages.filter(
     (message) =>
       !isManagedFollowUpMessage(message.text) && !isHomerInjectedUserMessage(message.text),
   );
   if (nonSyntheticMessages.length > 0) {
     return nonSyntheticMessages;
   }
-  const nonManagedMessages = userMessages.filter(
+  const nonManagedMessages = informativeMessages.filter(
     (message) => !isManagedFollowUpMessage(message.text),
   );
   return nonManagedMessages.length > 0 ? nonManagedMessages : userMessages;
@@ -623,6 +651,10 @@ function collectObservedThreadState(input: {
     .find((checkpoint) => checkpoint.status === "ready");
   const latestCheckpoint = input.thread.checkpoints.at(-1) ?? null;
   const relevantCheckpoint = latestReadyCheckpoint ?? latestCheckpoint ?? null;
+  const latestCheckpointStatus = latestCheckpoint?.status ?? null;
+  const latestDifferingInput = latestRelevantUserMessage
+    ? truncateValue(normalizeMessageText(latestRelevantUserMessage.text), 140)
+    : null;
 
   return {
     verifiedDone:
@@ -637,14 +669,25 @@ function collectObservedThreadState(input: {
       latestRelevantUserMessage
         ? `Latest real user input differs from authoritative assignment (message ${latestRelevantUserMessage.id}).`
         : null,
+      latestDifferingInput ? `Latest differing user input: ${latestDifferingInput}` : null,
       latestCheckpoint !== null && latestCheckpoint.status !== "ready"
         ? `Checkpoint state is ${latestCheckpoint.status} after the last turn.`
         : null,
     ]),
     verificationStillRequired:
-      latestCheckpoint?.status === "ready"
+      latestCheckpointStatus === "ready"
         ? ["Run the next verification pass after the fresh session picks up the thread."]
-        : ["Checkpoint verification is incomplete. Re-check the working tree before broad edits."],
+        : latestCheckpointStatus === "missing"
+          ? [
+              "Latest checkpoint status is missing. Treat completion as unverified and continue from the current repository state.",
+            ]
+          : latestCheckpointStatus === "error"
+            ? [
+                "Latest checkpoint status is error. Treat completion as unverified until checkpoint capture succeeds.",
+              ]
+            : [
+                "Checkpoint verification is incomplete. Re-check the working tree before broad edits.",
+              ],
     relevantFilePaths: normalizeTrimmedValues(
       relevantCheckpoint?.files.slice(0, 12).map((file) => file.path) ?? [],
     ),
@@ -703,6 +746,11 @@ function buildSuccessorHandoffPrompt(input: {
     "- This assignment remains authoritative until the user explicitly changes it.",
     "- Treat short status checks, completion questions, and continue nudges as managed continuation, not as new assignments.",
     "- Do not ask what the original assignment was.",
+    "",
+    ...buildPreflightGuardLines({
+      thread: input.sourceThread,
+      taskAnchor,
+    }),
     "",
     ...buildExecutionDirectiveLines(),
     "",
@@ -766,6 +814,11 @@ function buildManagedContinuationPrompt(input: {
     "- This managed follow-up does not change the assignment.",
     "- Continue the existing authoritative task until the user gives a real new instruction.",
     "- If the task is not complete, continue working or report what remains without claiming completion.",
+    "",
+    ...buildPreflightGuardLines({
+      thread: input.thread,
+      taskAnchor: input.taskAnchor,
+    }),
     "",
     ...buildExecutionDirectiveLines(),
     "",
@@ -1151,6 +1204,7 @@ const make = Effect.gen(function* () {
     );
     const constraints = extractConstraints(authoritativeMessages);
     const nonGoals = extractNonGoals(authoritativeMessages);
+    const branchExpectation = input.thread.branch;
     const derivedRevisionFloor = Math.max(authoritativeMessages.length, 1);
     const nextRevision = Math.max(existingTaskAnchor?.revision ?? 1, derivedRevisionFloor);
     const instructionDeltaSnapshot = buildInstructionDeltaSnapshot({
@@ -1171,6 +1225,7 @@ const make = Effect.gen(function* () {
           existingTaskAnchor.instructionDeltaSnapshot?.instructionDeltas ?? [],
           instructionDeltaSnapshot.instructionDeltas,
         );
+      const branchExpectationChanged = existingTaskAnchor.branchExpectation !== branchExpectation;
 
       const revision = instructionChangesDetected
         ? Math.max(existingTaskAnchor.revision + 1, derivedRevisionFloor)
@@ -1189,6 +1244,7 @@ const make = Effect.gen(function* () {
         sourceDocumentPaths,
         constraints,
         nonGoals,
+        branchExpectation,
         revision,
         authoritativeUserMessageId,
         requiredExactCompletionPhrase,
@@ -1196,6 +1252,7 @@ const make = Effect.gen(function* () {
         instructionDeltaSnapshot: refreshedInstructionDeltaSnapshot,
         updatedAt:
           instructionChangesDetected ||
+          branchExpectationChanged ||
           authoritativeUserMessageId !== existingTaskAnchor.authoritativeUserMessageId
             ? input.createdAt
             : existingTaskAnchor.updatedAt,
@@ -1203,6 +1260,7 @@ const make = Effect.gen(function* () {
 
       if (
         !instructionChangesDetected &&
+        !branchExpectationChanged &&
         !shouldRefreshSnapshot &&
         refreshedTaskAnchor.authoritativeUserMessageId ===
           existingTaskAnchor.authoritativeUserMessageId
@@ -1242,7 +1300,7 @@ const make = Effect.gen(function* () {
       sourceDocumentPaths,
       constraints,
       nonGoals,
-      branchExpectation: input.thread.branch,
+      branchExpectation,
       revision: nextRevision,
       authoritativeUserMessageId: latestAuthoritativeMessage?.id ?? null,
       requiredExactCompletionPhrase,
