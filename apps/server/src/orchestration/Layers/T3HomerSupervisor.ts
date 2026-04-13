@@ -11,6 +11,7 @@ import {
   T3_HOMER_ACTIVITY_KINDS,
   type T3HomerExecutionPolicy,
   type T3HomerHandoffPayload,
+  type T3HomerInstructionDeltaSnapshot,
   type T3HomerManagedWorkState,
   type T3HomerTaskAnchor,
   ThreadId,
@@ -135,6 +136,26 @@ function normalizeMessageText(text: string): string {
 
 function normalizeInstructionLine(line: string): string {
   return line.trim().replace(/^[-*]\s+/, "");
+}
+
+function truncateInstructionDelta(value: string): string {
+  return truncateValue(value, HOMER_DETAIL_MAX_CHARS);
+}
+
+function renderManagedFollowUpSummary(
+  followUpKind: HomerManagedFollowUpKind,
+  followUpText: string,
+): string {
+  switch (followUpKind) {
+    case "status_check":
+      return "Short status check from user.";
+    case "completion_check":
+      return "Short completion check from user.";
+    case "resume_managed_work":
+      return truncateValue(followUpText, 120);
+    case "user_takes_back_control":
+      return "User took back control.";
+  }
 }
 
 function matchesManagedFollowUpPattern(text: string, patterns: ReadonlyArray<RegExp>): boolean {
@@ -275,25 +296,121 @@ function extractSourceDocumentPaths(text: string): string[] {
   return normalizeTrimmedValues(matches);
 }
 
-function extractObjective(text: string, fallback: string): string {
-  const taskMatch = text.match(/^\s*Your task is\s+(.+)$/im);
-  if (taskMatch?.[1]) {
-    return truncateValue(taskMatch[1], HOMER_GOAL_MAX_CHARS) || fallback;
+function extractConstraints(messages: ReadonlyArray<OrchestrationMessage>): string[] {
+  return normalizeTrimmedValues(
+    messages.flatMap((message) =>
+      extractSectionEntries(message.text, ["Constraints", "Constraint"]),
+    ),
+  );
+}
+
+function extractNonGoals(messages: ReadonlyArray<OrchestrationMessage>): string[] {
+  return normalizeTrimmedValues(
+    messages.flatMap((message) =>
+      extractSectionEntries(message.text, ["Non-goals", "Non-goal", "Non goals"]),
+    ),
+  );
+}
+
+function extractObjectiveFromMessages(
+  messages: ReadonlyArray<OrchestrationMessage>,
+  fallback: string,
+): string {
+  for (const message of messages.toReversed()) {
+    const explicitTaskMatch = message.text.match(/^\s*Your task is\s+(.+)$/im);
+    if (explicitTaskMatch?.[1]) {
+      const objective = truncateValue(explicitTaskMatch[1], HOMER_GOAL_MAX_CHARS);
+      if (objective.length > 0) {
+        return objective;
+      }
+    }
+
+    const goalEntries = extractSectionEntries(message.text, ["Goal"]);
+    if (goalEntries.length > 0) {
+      const objective = truncateValue(goalEntries.join(" "), HOMER_GOAL_MAX_CHARS);
+      if (objective.length > 0) {
+        return objective;
+      }
+    }
   }
 
-  const goalEntries = extractSectionEntries(text, ["Goal"]);
-  if (goalEntries.length > 0) {
-    return truncateValue(goalEntries.join(" "), HOMER_GOAL_MAX_CHARS) || fallback;
+  return fallback;
+}
+
+function extractInstructionDeltasFromMessage(text: string): string[] {
+  const lines = text.split(/\r?\n/);
+  const deltas: string[] = [];
+  let activeSection: "constraints" | "non_goals" | "other" | null = null;
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (trimmed.length === 0) {
+      activeSection = null;
+      continue;
+    }
+
+    const headerMatch = trimmed.match(HOMER_SECTION_HEADER_RE);
+    if (headerMatch) {
+      const label = headerMatch[1]!.trim().toLowerCase();
+      activeSection =
+        label === "constraints" || label === "constraint"
+          ? "constraints"
+          : label === "non-goals" || label === "non-goal" || label === "non goals"
+            ? "non_goals"
+            : "other";
+      continue;
+    }
+
+    const normalized = normalizeInstructionLine(trimmed);
+    if (normalized.length === 0) {
+      continue;
+    }
+    if (/^(?:docs|apps|packages)\//i.test(normalized) || /^https?:\/\//i.test(normalized)) {
+      continue;
+    }
+    if (/^(?:your task is|goal:)/i.test(normalized)) {
+      continue;
+    }
+
+    if (activeSection === "constraints") {
+      deltas.push(`Constraint: ${normalized}`);
+      continue;
+    }
+    if (activeSection === "non_goals") {
+      deltas.push(`Non-goal: ${normalized}`);
+      continue;
+    }
+    if (
+      /^(?:read|start by reading|use|keep|avoid|work|implement|fix|preserve|carry|continue|do not|don't|never)\b/i.test(
+        normalized,
+      )
+    ) {
+      deltas.push(normalized);
+      continue;
+    }
+    if (/(?:\bexactly\b|\bcomplete\b|\bcompletion\b)/i.test(normalized)) {
+      deltas.push(normalized);
+    }
   }
 
-  const firstUsefulLine = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find(
-      (line) => line.length > 0 && !HOMER_SECTION_HEADER_RE.test(line) && !/^[-*]\s+/.test(line),
-    );
+  return normalizeTrimmedValues(deltas.map(truncateInstructionDelta));
+}
 
-  return truncateValue(firstUsefulLine, HOMER_GOAL_MAX_CHARS) || fallback;
+function buildInstructionDeltaSnapshot(input: {
+  readonly authoritativeMessages: ReadonlyArray<OrchestrationMessage>;
+  readonly revision: number;
+  readonly createdAt: string;
+}): T3HomerInstructionDeltaSnapshot {
+  const recentMessages = input.authoritativeMessages.slice(-5);
+  const instructionDeltas = normalizeTrimmedValues(
+    recentMessages.flatMap((message) => extractInstructionDeltasFromMessage(message.text)),
+  ).slice(-5);
+
+  return {
+    instructionDeltas,
+    snapshotRevision: input.revision,
+    createdAt: input.createdAt,
+  };
 }
 
 function getUserMessages(thread: OrchestrationThread): OrchestrationMessage[] {
@@ -363,6 +480,8 @@ function buildSuccessorHandoffPrompt(input: {
   readonly payload: T3HomerHandoffPayload;
 }) {
   const { taskAnchor } = input.payload;
+  const instructionDeltaSnapshot =
+    taskAnchor.instructionDeltaSnapshot ?? input.payload.instructionDeltaSnapshot;
   const sections = [
     "T3 Homer successor-thread handoff.",
     "",
@@ -386,6 +505,13 @@ function buildSuccessorHandoffPrompt(input: {
     "Non-goals:",
     ...(taskAnchor.nonGoals.length > 0
       ? taskAnchor.nonGoals.map((entry) => `- ${entry}`)
+      : ["- None recorded."]),
+    "",
+    `Assignment revision: ${taskAnchor.revision}`,
+    "",
+    "Recent instruction deltas:",
+    ...(instructionDeltaSnapshot.instructionDeltas.length > 0
+      ? instructionDeltaSnapshot.instructionDeltas.map((entry) => `- ${entry}`)
       : ["- None recorded."]),
     "",
     `Branch expectation: ${taskAnchor.branchExpectation ?? "current branch context"}`,
@@ -439,13 +565,15 @@ function buildManagedContinuationPrompt(input: {
     thread: input.thread,
     taskAnchor: input.taskAnchor,
   });
+  const instructionDeltaSnapshot = input.taskAnchor.instructionDeltaSnapshot;
+  const followUpSummary = renderManagedFollowUpSummary(input.followUpKind, input.followUpText);
   const sections = [
     "T3 Homer managed-work continuation.",
     "",
     `Thread: ${input.thread.id}`,
     `Execution policy: ${input.executionPolicy}`,
     `Managed follow-up kind: ${input.followUpKind}`,
-    `Managed follow-up received: ${truncateValue(input.followUpText, 120)}`,
+    `Managed follow-up received: ${followUpSummary}`,
     "",
     "Authority rules:",
     "- This managed follow-up does not change the assignment.",
@@ -467,6 +595,13 @@ function buildManagedContinuationPrompt(input: {
     "Non-goals:",
     ...(input.taskAnchor.nonGoals.length > 0
       ? input.taskAnchor.nonGoals.map((entry) => `- ${entry}`)
+      : ["- None recorded."]),
+    "",
+    `Assignment revision: ${input.taskAnchor.revision}`,
+    "",
+    "Recent instruction deltas:",
+    ...(instructionDeltaSnapshot && instructionDeltaSnapshot.instructionDeltas.length > 0
+      ? instructionDeltaSnapshot.instructionDeltas.map((entry) => `- ${entry}`)
       : ["- None recorded."]),
     "",
     `Branch expectation: ${input.taskAnchor.branchExpectation ?? "current branch context"}`,
@@ -663,30 +798,77 @@ const make = Effect.gen(function* () {
     readonly createdAt: string;
   }) {
     const authoritativeMessages = getAuthoritativeUserMessages(input.thread);
-    const authoritativeMessage = authoritativeMessages[0] ?? null;
-    const authoritativeText = authoritativeMessage?.text ?? input.thread.title;
+    const latestAuthoritativeMessage = authoritativeMessages.at(-1) ?? null;
     const allRelevantText = authoritativeMessages.map((message) => message.text).join("\n\n");
     const requiredExactCompletionPhrase = extractRequiredExactCompletionPhrase(allRelevantText);
     const completionChecks = extractCompletionChecks(
       allRelevantText,
       requiredExactCompletionPhrase,
     );
+    const existingTaskAnchor = input.thread.homerTaskAnchor;
+    const objective = extractObjectiveFromMessages(
+      authoritativeMessages,
+      existingTaskAnchor?.objective ?? input.thread.title,
+    );
+    const sourceDocumentPaths = extractSourceDocumentPaths(allRelevantText);
+    const constraints = extractConstraints(authoritativeMessages);
+    const nonGoals = extractNonGoals(authoritativeMessages);
+    const derivedRevisionFloor = Math.max(authoritativeMessages.length, 1);
+    const nextRevision = Math.max(existingTaskAnchor?.revision ?? 1, derivedRevisionFloor);
+    const instructionDeltaSnapshot = buildInstructionDeltaSnapshot({
+      authoritativeMessages,
+      revision: nextRevision,
+      createdAt: input.createdAt,
+    });
 
-    if (input.thread.homerTaskAnchor) {
-      const existingTaskAnchor = input.thread.homerTaskAnchor;
-      if (
-        existingTaskAnchor.requiredExactCompletionPhrase === requiredExactCompletionPhrase &&
-        areStringArraysEqual(existingTaskAnchor.completionChecks, completionChecks)
-      ) {
-        return existingTaskAnchor;
-      }
+    if (existingTaskAnchor) {
+      const instructionChangesDetected =
+        existingTaskAnchor.objective !== objective ||
+        !areStringArraysEqual(existingTaskAnchor.sourceDocumentPaths, sourceDocumentPaths) ||
+        !areStringArraysEqual(existingTaskAnchor.constraints, constraints) ||
+        !areStringArraysEqual(existingTaskAnchor.nonGoals, nonGoals) ||
+        existingTaskAnchor.requiredExactCompletionPhrase !== requiredExactCompletionPhrase ||
+        !areStringArraysEqual(existingTaskAnchor.completionChecks, completionChecks) ||
+        !areStringArraysEqual(
+          existingTaskAnchor.instructionDeltaSnapshot?.instructionDeltas ?? [],
+          instructionDeltaSnapshot.instructionDeltas,
+        );
+
+      const revision = instructionChangesDetected
+        ? Math.max(existingTaskAnchor.revision + 1, derivedRevisionFloor)
+        : existingTaskAnchor.revision;
+      const refreshedInstructionDeltaSnapshot: T3HomerInstructionDeltaSnapshot = {
+        ...instructionDeltaSnapshot,
+        snapshotRevision: revision,
+      };
+      const authoritativeUserMessageId =
+        latestAuthoritativeMessage?.id ?? existingTaskAnchor.authoritativeUserMessageId;
 
       const refreshedTaskAnchor: T3HomerTaskAnchor = {
         ...existingTaskAnchor,
+        objective,
+        sourceDocumentPaths,
+        constraints,
+        nonGoals,
+        revision,
+        authoritativeUserMessageId,
         requiredExactCompletionPhrase,
         completionChecks,
-        updatedAt: input.createdAt,
+        instructionDeltaSnapshot: refreshedInstructionDeltaSnapshot,
+        updatedAt:
+          instructionChangesDetected ||
+          authoritativeUserMessageId !== existingTaskAnchor.authoritativeUserMessageId
+            ? input.createdAt
+            : existingTaskAnchor.updatedAt,
       };
+
+      if (
+        !instructionChangesDetected &&
+        refreshedTaskAnchor.authoritativeUserMessageId ===
+          existingTaskAnchor.authoritativeUserMessageId
+      ) {
+        return existingTaskAnchor;
+      }
 
       yield* orchestrationEngine.dispatch({
         type: "thread.meta.update",
@@ -699,14 +881,19 @@ const make = Effect.gen(function* () {
     }
 
     const taskAnchor: T3HomerTaskAnchor = {
-      objective: extractObjective(authoritativeText, input.thread.title),
-      sourceDocumentPaths: extractSourceDocumentPaths(allRelevantText),
-      constraints: extractSectionEntries(authoritativeText, ["Constraints", "Constraint"]),
-      nonGoals: extractSectionEntries(authoritativeText, ["Non-goals", "Non-goal", "Non goals"]),
+      objective,
+      sourceDocumentPaths,
+      constraints,
+      nonGoals,
       branchExpectation: input.thread.branch,
-      authoritativeUserMessageId: authoritativeMessage?.id ?? null,
+      revision: nextRevision,
+      authoritativeUserMessageId: latestAuthoritativeMessage?.id ?? null,
       requiredExactCompletionPhrase,
       completionChecks,
+      instructionDeltaSnapshot: {
+        ...instructionDeltaSnapshot,
+        snapshotRevision: nextRevision,
+      },
       updatedAt: input.createdAt,
     };
 
@@ -736,6 +923,11 @@ const make = Effect.gen(function* () {
       sourceThreadId: input.thread.id,
       goal: input.taskAnchor.objective,
       taskAnchor: input.taskAnchor,
+      instructionDeltaSnapshot: input.taskAnchor.instructionDeltaSnapshot ?? {
+        instructionDeltas: [],
+        snapshotRevision: input.taskAnchor.revision,
+        createdAt: input.taskAnchor.updatedAt,
+      },
       verifiedDone: observed.verifiedDone,
       verifiedNotDone: observed.verifiedNotDone,
       nextAction:

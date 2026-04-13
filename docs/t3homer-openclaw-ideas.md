@@ -35,12 +35,15 @@ Implement these items:
 ## OpenClaw Idea Mapping
 
 1. OpenClaw-style explicit continuity state.
+
 - Homer equivalent: revisioned authoritative task anchor.
 
 2. OpenClaw-style pre-compaction/pre-transition memory handling.
+
 - Homer equivalent: deterministic instruction delta snapshot before restart/successor.
 
 3. OpenClaw-style summary + tail context.
+
 - Homer equivalent: base objective + recent authoritative deltas in handoff/continuation prompts.
 
 ## Why Explicit Self-Compaction Is Deferred

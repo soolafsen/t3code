@@ -131,6 +131,29 @@ async function readThreadById(engine: OrchestrationEngineShape, threadId: Thread
   return readModel.threads.find((entry) => entry.id === threadId) ?? null;
 }
 
+async function waitForThreadById(
+  engine: OrchestrationEngineShape,
+  threadId: ThreadId,
+  predicate: (thread: NonNullable<Awaited<ReturnType<typeof readThreadById>>>) => boolean,
+  timeoutMs = 2_000,
+) {
+  const deadline = Date.now() + timeoutMs;
+
+  async function poll(): Promise<NonNullable<Awaited<ReturnType<typeof readThreadById>>>> {
+    const thread = await readThreadById(engine, threadId);
+    if (thread && predicate(thread)) {
+      return thread;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error("Timed out waiting for Homer thread state");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    return poll();
+  }
+
+  return poll();
+}
+
 async function readThreads(engine: OrchestrationEngineShape) {
   const readModel = await Effect.runPromise(engine.getReadModel());
   return readModel.threads;
@@ -489,6 +512,274 @@ describe("T3HomerSupervisor", () => {
     expect(handoffPayload?.taskAnchor?.completionChecks).toContain(
       "When all tasks are complete, say exactly `I'm done`.",
     );
+  });
+
+  it("preserves mid-session instruction updates across restart-in-place handoffs", async () => {
+    const harness = await createHarness();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-homer-restart-instruction-base"),
+        threadId: asThreadId("thread-1"),
+        message: {
+          messageId: asMessageId("msg-homer-restart-instruction-base"),
+          role: "user",
+          text: [
+            "Your task is implement the Homer safe fix.",
+            "",
+            "Start by reading:",
+            "- docs/HomerMinimalSafeFix.md",
+          ].join("\n"),
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: "2026-04-13T10:00:00.000Z",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-homer-restart-instruction-update"),
+        threadId: asThreadId("thread-1"),
+        message: {
+          messageId: asMessageId("msg-homer-restart-instruction-update"),
+          role: "user",
+          text: "Use $collaboration-defaults and work autonomously.",
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: "2026-04-13T10:01:00.000Z",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-13T10:02:00.000Z",
+        reason: "Restart in place should preserve the latest instruction delta.",
+      }),
+    );
+
+    const thread = await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.session?.status === "ready" &&
+        candidate.homerTaskAnchor?.revision === 2 &&
+        candidate.messages.some(
+          (message) =>
+            message.role === "user" && message.text.includes("T3 Homer managed-work continuation."),
+        ),
+    );
+
+    const continuationPrompt =
+      thread.messages.find(
+        (message) =>
+          message.role === "user" && message.text.includes("T3 Homer managed-work continuation."),
+      )?.text ?? "";
+
+    expect(thread.homerTaskAnchor?.revision).toBe(2);
+    expect(thread.homerTaskAnchor?.authoritativeUserMessageId).toBe(
+      asMessageId("msg-homer-restart-instruction-update"),
+    );
+    expect(thread.homerTaskAnchor?.instructionDeltaSnapshot?.snapshotRevision).toBe(2);
+    expect(thread.homerTaskAnchor?.instructionDeltaSnapshot?.instructionDeltas).toContain(
+      "Use $collaboration-defaults and work autonomously.",
+    );
+    expect(continuationPrompt).toContain("Assignment revision: 2");
+    expect(continuationPrompt).toContain("Use $collaboration-defaults and work autonomously.");
+  });
+
+  it("preserves mid-session instruction updates across successor-thread handoffs", async () => {
+    const harness = await createHarness();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-homer-successor-instruction-base"),
+        threadId: asThreadId("thread-1"),
+        message: {
+          messageId: asMessageId("msg-homer-successor-instruction-base"),
+          role: "user",
+          text: [
+            "Your task is implement the Homer safe fix.",
+            "",
+            "Start by reading:",
+            "- docs/HomerMinimalSafeFix.md",
+          ].join("\n"),
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: "2026-04-13T10:10:00.000Z",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-13T10:11:00.000Z",
+        reason: "First intervention keeps the thread in place.",
+      }),
+    );
+
+    await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.session?.status === "ready" &&
+        candidate.homerManagedWorkState?.executionPolicy === "restart_in_place",
+    );
+
+    await Effect.runPromise(
+      harness.supervisor.handleUserTurn({
+        threadId: asThreadId("thread-1"),
+        text: "Use $collaboration-defaults and work autonomously.",
+        createdAt: "2026-04-13T10:12:00.000Z",
+      }),
+    );
+
+    await waitForThread(harness.engine, (candidate) => candidate.homerManagedWorkState === null);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-homer-successor-instruction-update"),
+        threadId: asThreadId("thread-1"),
+        message: {
+          messageId: asMessageId("msg-homer-successor-instruction-update"),
+          role: "user",
+          text: "Use $collaboration-defaults and work autonomously.",
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: "2026-04-13T10:12:30.000Z",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-13T10:13:00.000Z",
+        reason: "Second intervention should promote the updated instructions to a successor.",
+      }),
+    );
+
+    const sourceThread = await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.homerSuccessorThreadId !== null && candidate.session?.status === "stopped",
+    );
+    const successorThreadId = sourceThread.homerSuccessorThreadId!;
+
+    const successorThread = await waitForThreadById(
+      harness.engine,
+      successorThreadId,
+      (candidate) =>
+        candidate.session?.status === "ready" &&
+        candidate.messages.some(
+          (message) =>
+            message.role === "user" && message.text.includes("T3 Homer successor-thread handoff."),
+        ),
+    );
+
+    const handoffPrompt =
+      successorThread.messages.find(
+        (message) =>
+          message.role === "user" && message.text.includes("T3 Homer successor-thread handoff."),
+      )?.text ?? "";
+
+    expect(sourceThread.homerTaskAnchor?.revision).toBe(2);
+    expect(sourceThread.homerTaskAnchor?.authoritativeUserMessageId).toBe(
+      asMessageId("msg-homer-successor-instruction-update"),
+    );
+    expect(sourceThread.homerTaskAnchor?.instructionDeltaSnapshot?.snapshotRevision).toBe(2);
+    expect(successorThread.homerTaskAnchor?.revision).toBe(2);
+    expect(successorThread.homerTaskAnchor?.instructionDeltaSnapshot?.instructionDeltas).toContain(
+      "Use $collaboration-defaults and work autonomously.",
+    );
+    expect(handoffPrompt).toContain("Assignment revision: 2");
+    expect(handoffPrompt).toContain("Use $collaboration-defaults and work autonomously.");
+  });
+
+  it("increments revision only for real instruction changes, not managed status checks", async () => {
+    const harness = await createHarness();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-homer-revision-base"),
+        threadId: asThreadId("thread-1"),
+        message: {
+          messageId: asMessageId("msg-homer-revision-base"),
+          role: "user",
+          text: [
+            "Your task is implement the Homer safe fix.",
+            "",
+            "Start by reading:",
+            "- docs/HomerMinimalSafeFix.md",
+          ].join("\n"),
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: "2026-04-13T10:20:00.000Z",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-13T10:21:00.000Z",
+        reason: "Prepare managed continuation before testing status checks.",
+      }),
+    );
+
+    const managedThread = await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.session?.status === "ready" &&
+        candidate.homerManagedWorkState?.status === "active",
+    );
+    expect(managedThread.homerTaskAnchor?.revision).toBe(1);
+
+    const result = await Effect.runPromise(
+      harness.supervisor.handleUserTurn({
+        threadId: asThreadId("thread-1"),
+        text: "Are you still working on the tasks?",
+        createdAt: "2026-04-13T10:22:00.000Z",
+      }),
+    );
+
+    expect(result).toBe("handled");
+
+    const resumedThread = await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.homerManagedWorkState?.updatedAt === "2026-04-13T10:22:00.000Z" &&
+        candidate.messages.some(
+          (message) =>
+            message.role === "user" &&
+            message.text.includes("Managed follow-up kind: status_check"),
+        ),
+    );
+
+    const continuationPrompt =
+      resumedThread.messages.find(
+        (message) =>
+          message.role === "user" && message.text.includes("Managed follow-up kind: status_check"),
+      )?.text ?? "";
+
+    expect(resumedThread.homerTaskAnchor?.revision).toBe(1);
+    expect(resumedThread.homerTaskAnchor?.authoritativeUserMessageId).toBe(
+      asMessageId("msg-homer-revision-base"),
+    );
+    expect(resumedThread.homerTaskAnchor?.instructionDeltaSnapshot?.snapshotRevision).toBe(1);
+    expect(continuationPrompt).toContain("Assignment revision: 1");
+    expect(continuationPrompt).not.toContain("Are you still working on the tasks?");
   });
 
   it("spawns a successor thread on the second intervention and retires the old authority", async () => {

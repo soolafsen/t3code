@@ -4,6 +4,7 @@ import {
   IsoDateTime,
   MessageId,
   NonNegativeInt,
+  PositiveInt,
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas";
@@ -45,18 +46,29 @@ export const T3HomerCheckpointResetReason = Schema.Literals([
 ]);
 export type T3HomerCheckpointResetReason = typeof T3HomerCheckpointResetReason.Type;
 
+export const T3HomerInstructionDeltaSnapshot = Schema.Struct({
+  instructionDeltas: Schema.Array(TrimmedNonEmptyString),
+  snapshotRevision: PositiveInt,
+  createdAt: IsoDateTime,
+});
+export type T3HomerInstructionDeltaSnapshot = typeof T3HomerInstructionDeltaSnapshot.Type;
+
 export const T3HomerTaskAnchor = Schema.Struct({
   objective: TrimmedNonEmptyString,
   sourceDocumentPaths: Schema.Array(TrimmedNonEmptyString),
   constraints: Schema.Array(TrimmedNonEmptyString),
   nonGoals: Schema.Array(TrimmedNonEmptyString),
   branchExpectation: Schema.NullOr(TrimmedNonEmptyString),
+  revision: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(1))),
   authoritativeUserMessageId: Schema.NullOr(MessageId),
   requiredExactCompletionPhrase: Schema.NullOr(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   completionChecks: Schema.Array(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  instructionDeltaSnapshot: Schema.NullOr(T3HomerInstructionDeltaSnapshot).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   updatedAt: IsoDateTime,
 });
@@ -77,6 +89,7 @@ export const T3HomerHandoffPayload = Schema.Struct({
   sourceThreadId: ThreadId,
   goal: Schema.String,
   taskAnchor: T3HomerTaskAnchor,
+  instructionDeltaSnapshot: T3HomerInstructionDeltaSnapshot,
   verifiedDone: Schema.Array(TrimmedNonEmptyString),
   verifiedNotDone: Schema.Array(TrimmedNonEmptyString),
   nextAction: TrimmedNonEmptyString,
