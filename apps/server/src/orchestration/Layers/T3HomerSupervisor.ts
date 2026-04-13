@@ -1,4 +1,5 @@
 import {
+  CheckpointRef,
   CommandId,
   EventId,
   MessageId,
@@ -28,7 +29,9 @@ import { T3HomerSupervisor, type T3HomerSupervisorShape } from "../Services/T3Ho
 
 const HOMER_PREPARE_USAGE_RATIO = 0.82;
 const HOMER_WARNING_THRESHOLD = 3;
-const HOMER_ESCALATION_THRESHOLD = 3;
+const HOMER_RESTART_FAILURE_PROMOTION_THRESHOLD = 2;
+const HOMER_RUNTIME_FATAL_REPEAT_THRESHOLD = 2;
+const HOMER_PENDING_TURN_TIMEOUT_MS = 20_000;
 const HOMER_GOAL_MAX_CHARS = 220;
 const HOMER_DETAIL_MAX_CHARS = 180;
 const HOMER_TITLE_SUFFIX_RE = /\s+\(Homer \d+\)$/;
@@ -79,6 +82,25 @@ type SupervisorInput =
       readonly event: SupervisorDomainEvent;
     };
 
+type HomerPromotionTriggerKind =
+  | "repeated_restart_failure"
+  | "pending_turn_timeout"
+  | "runtime_fatal_repeat"
+  | "manual";
+
+type HomerEscalationEvidence = {
+  triggerKind: HomerPromotionTriggerKind;
+  attemptCount: number;
+  assignmentRevision: number;
+  lastKnownTurnId: TurnId | null;
+  checkpointRef: CheckpointRef | null;
+};
+
+type HomerPolicyDecision = {
+  executionPolicy: T3HomerExecutionPolicy;
+  escalation: HomerEscalationEvidence | null;
+};
+
 type HomerState = {
   announced: boolean;
   supervisorState: "continue" | "prepare_handover" | "escalate";
@@ -89,6 +111,13 @@ type HomerState = {
   pendingReason: string | null;
   lastIntervenedTurnId: TurnId | null;
   suppressInterventionUntilNextTurnStart: boolean;
+  lastAuthoritativeAssignmentRevision: number | null;
+  restartAttemptsForRevision: number;
+  lastSuccessfulCompletedTurnAtForRevision: string | null;
+  pendingTurnRequestedAt: string | null;
+  runtimeFatalCountInManagedWindow: number;
+  lastKnownTurnId: TurnId | null;
+  lastKnownCheckpointRef: CheckpointRef | null;
 };
 
 function createInitialState(): HomerState {
@@ -102,6 +131,13 @@ function createInitialState(): HomerState {
     pendingReason: null,
     lastIntervenedTurnId: null,
     suppressInterventionUntilNextTurnStart: false,
+    lastAuthoritativeAssignmentRevision: null,
+    restartAttemptsForRevision: 0,
+    lastSuccessfulCompletedTurnAtForRevision: null,
+    pendingTurnRequestedAt: null,
+    runtimeFatalCountInManagedWindow: 0,
+    lastKnownTurnId: null,
+    lastKnownCheckpointRef: null,
   };
 }
 
@@ -121,6 +157,53 @@ function normalizeTrimmedValues(values: ReadonlyArray<string | null | undefined>
 
 function toTurnId(value: TurnId | string | undefined): TurnId | null {
   return value === undefined ? null : TurnId.make(String(value));
+}
+
+function toEpochMs(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getAssignmentRevision(thread: OrchestrationThread, state: HomerState): number {
+  return thread.homerTaskAnchor?.revision ?? state.lastAuthoritativeAssignmentRevision ?? 1;
+}
+
+function syncRevisionTracking(state: HomerState, assignmentRevision: number): void {
+  if (state.lastAuthoritativeAssignmentRevision === assignmentRevision) {
+    return;
+  }
+  state.lastAuthoritativeAssignmentRevision = assignmentRevision;
+  state.restartAttemptsForRevision = 0;
+  state.lastSuccessfulCompletedTurnAtForRevision = null;
+  state.runtimeFatalCountInManagedWindow = 0;
+}
+
+function hasPendingTurnTimedOut(state: HomerState, createdAt: string): boolean {
+  const requestedAt = toEpochMs(state.pendingTurnRequestedAt);
+  const now = toEpochMs(createdAt);
+  if (requestedAt === null || now === null) {
+    return false;
+  }
+  return now - requestedAt >= HOMER_PENDING_TURN_TIMEOUT_MS;
+}
+
+function buildEscalationEvidence(
+  state: HomerState,
+  input: {
+    readonly triggerKind: HomerPromotionTriggerKind;
+    readonly assignmentRevision: number;
+  },
+): HomerEscalationEvidence {
+  return {
+    triggerKind: input.triggerKind,
+    attemptCount: state.restartAttemptsForRevision,
+    assignmentRevision: input.assignmentRevision,
+    lastKnownTurnId: state.lastKnownTurnId,
+    checkpointRef: state.lastKnownCheckpointRef,
+  };
 }
 
 function hasHandledTurn(state: HomerState, turnId: TurnId | null): boolean {
@@ -930,15 +1013,77 @@ const make = Effect.gen(function* () {
     });
   });
 
-  const selectExecutionPolicy = (
-    threadId: ThreadId,
-    explicitPolicy?: T3HomerExecutionPolicy,
-  ): T3HomerExecutionPolicy => {
-    if (explicitPolicy) {
-      return explicitPolicy;
+  const selectExecutionPolicy = (input: {
+    readonly thread: OrchestrationThread;
+    readonly createdAt: string;
+    readonly explicitPolicy?: T3HomerExecutionPolicy;
+    readonly allowPendingTimeoutPromotion?: boolean;
+  }): HomerPolicyDecision => {
+    const state = getState(input.thread.id);
+    const assignmentRevision = getAssignmentRevision(input.thread, state);
+    syncRevisionTracking(state, assignmentRevision);
+
+    if (input.explicitPolicy === "spawn_successor_thread") {
+      return {
+        executionPolicy: "spawn_successor_thread",
+        escalation: buildEscalationEvidence(state, {
+          triggerKind: "manual",
+          assignmentRevision,
+        }),
+      };
     }
-    const state = getState(threadId);
-    return state.interventionCount >= 1 ? "spawn_successor_thread" : "restart_in_place";
+    if (input.explicitPolicy === "restart_in_place") {
+      return {
+        executionPolicy: "restart_in_place",
+        escalation: null,
+      };
+    }
+
+    if (
+      input.allowPendingTimeoutPromotion === true &&
+      hasPendingTurnTimedOut(state, input.createdAt)
+    ) {
+      return {
+        executionPolicy: "spawn_successor_thread",
+        escalation: buildEscalationEvidence(state, {
+          triggerKind: "pending_turn_timeout",
+          assignmentRevision,
+        }),
+      };
+    }
+
+    const inManagedWindow = input.thread.homerManagedWorkState !== null;
+    if (!inManagedWindow) {
+      return {
+        executionPolicy:
+          state.interventionCount >= 1 ? "spawn_successor_thread" : "restart_in_place",
+        escalation: null,
+      };
+    }
+
+    if (state.runtimeFatalCountInManagedWindow >= HOMER_RUNTIME_FATAL_REPEAT_THRESHOLD) {
+      return {
+        executionPolicy: "spawn_successor_thread",
+        escalation: buildEscalationEvidence(state, {
+          triggerKind: "runtime_fatal_repeat",
+          assignmentRevision,
+        }),
+      };
+    }
+    if (state.restartAttemptsForRevision >= HOMER_RESTART_FAILURE_PROMOTION_THRESHOLD) {
+      return {
+        executionPolicy: "spawn_successor_thread",
+        escalation: buildEscalationEvidence(state, {
+          triggerKind: "repeated_restart_failure",
+          assignmentRevision,
+        }),
+      };
+    }
+
+    return {
+      executionPolicy: "restart_in_place",
+      escalation: null,
+    };
   };
 
   const resolveTaskAnchor = Effect.fn("resolveTaskAnchor")(function* (input: {
@@ -1183,6 +1328,34 @@ const make = Effect.gen(function* () {
     });
   });
 
+  const appendSuccessorPromotionActivity = Effect.fn("appendSuccessorPromotionActivity")(
+    function* (input: {
+      readonly threadId: ThreadId;
+      readonly reason: string;
+      readonly createdAt: string;
+      readonly turnId: TurnId | null;
+      readonly escalation: HomerEscalationEvidence;
+    }) {
+      yield* appendActivity({
+        threadId: input.threadId,
+        kind: T3_HOMER_ACTIVITY_KINDS.escalated,
+        summary: "T3 Homer promoted recovery to successor-thread fallback",
+        tone: "error",
+        turnId: input.turnId,
+        createdAt: input.createdAt,
+        payload: {
+          reason: input.reason,
+          executionPolicy: "spawn_successor_thread",
+          triggerKind: input.escalation.triggerKind,
+          attemptCount: input.escalation.attemptCount,
+          assignmentRevision: input.escalation.assignmentRevision,
+          lastKnownTurnId: input.escalation.lastKnownTurnId,
+          checkpointRef: input.escalation.checkpointRef,
+        },
+      });
+    },
+  );
+
   const markManualAttention = Effect.fn("markManualAttention")(function* (input: {
     readonly threadId: ThreadId;
     readonly createdAt: string;
@@ -1285,18 +1458,9 @@ const make = Effect.gen(function* () {
       refreshSnapshotBeforeTransition: true,
       turnId: input.turnId,
     });
+    syncRevisionTracking(state, taskAnchor.revision);
 
     const nextInterventionCount = state.interventionCount + 1;
-    if (nextInterventionCount >= HOMER_ESCALATION_THRESHOLD) {
-      state.supervisorState = "escalate";
-      yield* appendEscalationActivity({
-        threadId: input.threadId,
-        reason: input.reason,
-        createdAt: input.createdAt,
-        turnId: input.turnId,
-        interventionCount: nextInterventionCount,
-      });
-    }
 
     const stopped = yield* stopThreadAuthority({
       thread,
@@ -1424,10 +1588,12 @@ const make = Effect.gen(function* () {
     state.warningCount = 0;
     state.errorCount = 0;
     state.interventionCount = nextInterventionCount;
+    state.restartAttemptsForRevision += 1;
     state.interventionInProgress = false;
     state.pendingReason = null;
     state.supervisorState = "continue";
     state.lastIntervenedTurnId = input.turnId;
+    state.lastKnownTurnId = input.turnId;
   });
 
   const spawnSuccessorThread = Effect.fn("spawnSuccessorThread")(function* (input: {
@@ -1455,18 +1621,9 @@ const make = Effect.gen(function* () {
       refreshSnapshotBeforeTransition: true,
       turnId: input.turnId,
     });
+    syncRevisionTracking(state, taskAnchor.revision);
 
     const nextInterventionCount = state.interventionCount + 1;
-    if (nextInterventionCount >= HOMER_ESCALATION_THRESHOLD) {
-      state.supervisorState = "escalate";
-      yield* appendEscalationActivity({
-        threadId: input.threadId,
-        reason: input.reason,
-        createdAt: input.createdAt,
-        turnId: input.turnId,
-        interventionCount: nextInterventionCount,
-      });
-    }
 
     const payload = buildHandoffPayload({
       thread,
@@ -1678,8 +1835,10 @@ const make = Effect.gen(function* () {
     state.interventionCount = nextInterventionCount;
     state.interventionInProgress = false;
     state.pendingReason = null;
+    state.pendingTurnRequestedAt = null;
     state.supervisorState = "continue";
     state.lastIntervenedTurnId = input.turnId;
+    state.lastKnownTurnId = input.turnId;
   });
 
   const interveneOnThread = Effect.fn("interveneOnThread")(function* (input: {
@@ -1689,9 +1848,33 @@ const make = Effect.gen(function* () {
     readonly interruptActiveTurn: boolean;
     readonly turnId: TurnId | null;
     readonly executionPolicy?: T3HomerExecutionPolicy;
+    readonly allowPendingTimeoutPromotion?: boolean;
   }) {
-    const selectedPolicy = selectExecutionPolicy(input.threadId, input.executionPolicy);
-    if (selectedPolicy === "spawn_successor_thread") {
+    const resolved = yield* resolveThread(input.threadId);
+    const thread = resolved.thread;
+    if (!thread) {
+      return;
+    }
+
+    const policyDecision = selectExecutionPolicy({
+      thread,
+      createdAt: input.createdAt,
+      ...(input.executionPolicy ? { explicitPolicy: input.executionPolicy } : {}),
+      ...(input.allowPendingTimeoutPromotion === true
+        ? { allowPendingTimeoutPromotion: true }
+        : {}),
+    });
+
+    if (policyDecision.executionPolicy === "spawn_successor_thread") {
+      if (policyDecision.escalation !== null) {
+        yield* appendSuccessorPromotionActivity({
+          threadId: input.threadId,
+          reason: input.reason,
+          createdAt: input.createdAt,
+          turnId: input.turnId,
+          escalation: policyDecision.escalation,
+        });
+      }
       yield* spawnSuccessorThread({
         threadId: input.threadId,
         reason: input.reason,
@@ -1879,6 +2062,7 @@ const make = Effect.gen(function* () {
       state.warningCount = 0;
       state.errorCount = 0;
       state.pendingReason = null;
+      state.pendingTurnRequestedAt = event.payload.createdAt;
       state.supervisorState = "continue";
       state.lastIntervenedTurnId = null;
       state.suppressInterventionUntilNextTurnStart = false;
@@ -1896,6 +2080,7 @@ const make = Effect.gen(function* () {
       state.warningCount = 0;
       state.errorCount = 0;
       state.pendingReason = null;
+      state.pendingTurnRequestedAt = null;
       state.supervisorState = "continue";
       state.lastIntervenedTurnId = null;
       state.suppressInterventionUntilNextTurnStart = true;
@@ -1906,6 +2091,9 @@ const make = Effect.gen(function* () {
     }
 
     if (event.type === "thread.turn-diff-completed") {
+      state.lastKnownTurnId = event.payload.turnId;
+      state.lastKnownCheckpointRef = event.payload.checkpointRef;
+      state.pendingTurnRequestedAt = null;
       if (state.suppressInterventionUntilNextTurnStart) {
         return;
       }
@@ -1913,6 +2101,15 @@ const make = Effect.gen(function* () {
         return;
       }
       if (event.payload.status === "ready") {
+        const resolved = yield* resolveThread(event.payload.threadId);
+        const thread = resolved.thread;
+        if (thread !== null && thread.homerManagedWorkState !== null) {
+          const revision = getAssignmentRevision(thread, state);
+          syncRevisionTracking(state, revision);
+          state.restartAttemptsForRevision = 0;
+          state.lastSuccessfulCompletedTurnAtForRevision = event.payload.completedAt;
+          state.runtimeFatalCountInManagedWindow = 0;
+        }
         return;
       }
       yield* interveneOnThread({
@@ -1964,12 +2161,39 @@ const make = Effect.gen(function* () {
 
     const state = getState(event.threadId);
     const turnId = toTurnId(event.turnId);
+    if (turnId !== null) {
+      state.lastKnownTurnId = turnId;
+    }
 
     if (state.suppressInterventionUntilNextTurnStart) {
       return;
     }
 
+    if (
+      event.type !== "turn.started" &&
+      event.type !== "turn.completed" &&
+      event.type !== "turn.aborted" &&
+      !state.interventionInProgress &&
+      !hasHandledTurn(state, turnId) &&
+      hasPendingTurnTimedOut(state, event.createdAt)
+    ) {
+      yield* interveneOnThread({
+        threadId: event.threadId,
+        reason: "Turn start was requested but provider did not start within timeout.",
+        createdAt: event.createdAt,
+        interruptActiveTurn: false,
+        turnId,
+        allowPendingTimeoutPromotion: true,
+      });
+      return;
+    }
+
     switch (event.type) {
+      case "turn.started": {
+        state.pendingTurnRequestedAt = null;
+        return;
+      }
+
       case "thread.token-usage.updated": {
         const maxTokens = event.payload.usage.maxTokens;
         if (!maxTokens || maxTokens <= 0) {
@@ -2003,6 +2227,10 @@ const make = Effect.gen(function* () {
 
       case "runtime.error": {
         state.errorCount += 1;
+        const resolved = yield* resolveThread(event.threadId);
+        if (resolved.thread?.homerManagedWorkState !== null) {
+          state.runtimeFatalCountInManagedWindow += 1;
+        }
         if (state.interventionInProgress || hasHandledTurn(state, turnId)) {
           return;
         }
@@ -2035,6 +2263,18 @@ const make = Effect.gen(function* () {
 
       case "turn.completed":
       case "turn.aborted": {
+        state.pendingTurnRequestedAt = null;
+        if (event.type === "turn.completed") {
+          const resolved = yield* resolveThread(event.threadId);
+          const thread = resolved.thread;
+          if (thread !== null && thread.homerManagedWorkState !== null) {
+            const revision = getAssignmentRevision(thread, state);
+            syncRevisionTracking(state, revision);
+            state.restartAttemptsForRevision = 0;
+            state.lastSuccessfulCompletedTurnAtForRevision = event.createdAt;
+            state.runtimeFatalCountInManagedWindow = 0;
+          }
+        }
         if (state.supervisorState !== "prepare_handover") {
           return;
         }
@@ -2090,6 +2330,7 @@ const make = Effect.gen(function* () {
     yield* Effect.forkScoped(
       Stream.runForEach(providerService.streamEvents, (event) => {
         switch (event.type) {
+          case "turn.started":
           case "thread.token-usage.updated":
           case "runtime.warning":
           case "runtime.error":

@@ -767,7 +767,22 @@ describe("T3HomerSupervisor", () => {
       harness.supervisor.forceHandoff({
         threadId: asThreadId("thread-1"),
         createdAt: "2026-04-13T10:32:00.000Z",
-        reason: "Promote to successor after continuation prompt exists.",
+        reason: "Second restart attempt should still stay in place.",
+      }),
+    );
+    await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.session?.status === "ready" &&
+        candidate.homerSuccessorThreadId === null &&
+        harness.provider.counts().startedCount === 2,
+    );
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-13T10:33:00.000Z",
+        reason: "Promote to successor after repeated restart-in-place failures.",
       }),
     );
 
@@ -880,7 +895,349 @@ describe("T3HomerSupervisor", () => {
     expect(continuationPrompt).not.toContain("Are you still working on the tasks?");
   });
 
-  it("spawns a successor thread on the second intervention and retires the old authority", async () => {
+  it("uses restart-in-place for the first missing-checkpoint recovery", async () => {
+    const harness = await createHarness();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.diff.complete",
+        commandId: CommandId.make("cmd-homer-first-missing-diff"),
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-missing-1"),
+        completedAt: "2026-04-13T12:00:00.000Z",
+        checkpointRef: checkpointRefForThreadTurn(asThreadId("thread-1"), 1),
+        status: "missing",
+        files: [],
+        checkpointTurnCount: 1,
+        createdAt: "2026-04-13T12:00:00.000Z",
+      }),
+    );
+
+    const thread = await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.homerManagedWorkState?.executionPolicy === "restart_in_place" &&
+        candidate.session?.status === "ready",
+    );
+
+    expect(thread.homerSuccessorThreadId).toBeNull();
+    expect(thread.homerTransitionKind).toBeNull();
+    expect(harness.provider.counts().stoppedCount).toBe(1);
+    expect(harness.provider.counts().startedCount).toBe(1);
+  });
+
+  it("promotes to successor thread after repeated failed restart-in-place recoveries", async () => {
+    const harness = await createHarness();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-homer-repeated-failure-assignment"),
+        threadId: asThreadId("thread-1"),
+        message: {
+          messageId: asMessageId("msg-homer-repeated-failure-assignment"),
+          role: "user",
+          text: "Implement docs/successorFallbackFunctionality.md exactly.",
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: "2026-04-13T12:01:00.000Z",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.diff.complete",
+        commandId: CommandId.make("cmd-homer-missing-diff-1"),
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-missing-a"),
+        completedAt: "2026-04-13T12:02:00.000Z",
+        checkpointRef: checkpointRefForThreadTurn(asThreadId("thread-1"), 1),
+        status: "missing",
+        files: [],
+        checkpointTurnCount: 1,
+        createdAt: "2026-04-13T12:02:00.000Z",
+      }),
+    );
+
+    await waitForThread(harness.engine, () => harness.provider.counts().startedCount === 1);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.diff.complete",
+        commandId: CommandId.make("cmd-homer-missing-diff-2"),
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-missing-b"),
+        completedAt: "2026-04-13T12:03:00.000Z",
+        checkpointRef: checkpointRefForThreadTurn(asThreadId("thread-1"), 2),
+        status: "missing",
+        files: [],
+        checkpointTurnCount: 2,
+        createdAt: "2026-04-13T12:03:00.000Z",
+      }),
+    );
+
+    await waitForThread(harness.engine, () => harness.provider.counts().startedCount === 2);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.diff.complete",
+        commandId: CommandId.make("cmd-homer-missing-diff-3"),
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-missing-c"),
+        completedAt: "2026-04-13T12:04:00.000Z",
+        checkpointRef: checkpointRefForThreadTurn(asThreadId("thread-1"), 3),
+        status: "missing",
+        files: [],
+        checkpointTurnCount: 3,
+        createdAt: "2026-04-13T12:04:00.000Z",
+      }),
+    );
+
+    const sourceThread = await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.homerSuccessorThreadId !== null &&
+        candidate.session?.status === "stopped" &&
+        candidate.activities.some(
+          (activity) => activity.kind === T3_HOMER_ACTIVITY_KINDS.successorThreadSpawned,
+        ),
+    );
+
+    const promotionActivity = sourceThread.activities
+      .toReversed()
+      .find((activity) => activity.kind === T3_HOMER_ACTIVITY_KINDS.escalated);
+    const promotionPayload = promotionActivity?.payload as
+      | {
+          triggerKind?: string;
+          attemptCount?: number;
+          assignmentRevision?: number;
+          lastKnownTurnId?: string | null;
+          checkpointRef?: string | null;
+        }
+      | undefined;
+
+    expect(sourceThread.homerTransitionKind).toBe("spawn_successor_thread");
+    expect(promotionPayload).toEqual(
+      expect.objectContaining({
+        triggerKind: "repeated_restart_failure",
+        attemptCount: 2,
+        assignmentRevision: 1,
+      }),
+    );
+    expect(promotionPayload?.lastKnownTurnId).toBe("turn-missing-c");
+    expect(
+      typeof promotionPayload?.checkpointRef === "string" ||
+        promotionPayload?.checkpointRef === null,
+    ).toBe(true);
+  });
+
+  it("does not treat managed status checks as restart-attempt increments", async () => {
+    const harness = await createHarness();
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-13T12:10:00.000Z",
+        reason: "First recovery attempt.",
+      }),
+    );
+    await waitForThread(harness.engine, () => harness.provider.counts().startedCount === 1);
+
+    const followUpResult = await Effect.runPromise(
+      harness.supervisor.handleUserTurn({
+        threadId: asThreadId("thread-1"),
+        text: "status",
+        createdAt: "2026-04-13T12:11:00.000Z",
+      }),
+    );
+    expect(followUpResult).toBe("handled");
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-13T12:12:00.000Z",
+        reason: "Second recovery attempt should still stay in place.",
+      }),
+    );
+
+    const thread = await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.session?.status === "ready" &&
+        candidate.homerManagedWorkState?.executionPolicy === "restart_in_place" &&
+        harness.provider.counts().startedCount === 2,
+    );
+
+    expect(thread.homerSuccessorThreadId).toBeNull();
+    expect(harness.provider.counts().stoppedCount).toBe(2);
+  });
+
+  it("resets restart-attempt tracking after a successful completed turn", async () => {
+    const harness = await createHarness();
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-13T12:20:00.000Z",
+        reason: "First recovery attempt.",
+      }),
+    );
+    await waitForThread(harness.engine, () => harness.provider.counts().startedCount === 1);
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-13T12:21:00.000Z",
+        reason: "Second recovery attempt.",
+      }),
+    );
+    await waitForThread(harness.engine, () => harness.provider.counts().startedCount === 2);
+
+    harness.provider.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-homer-reset-success"),
+      provider: "codex",
+      createdAt: "2026-04-13T12:21:30.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-success-reset"),
+      payload: {
+        state: "completed",
+      },
+    });
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-13T12:22:00.000Z",
+        reason: "Post-success recovery should stay in place.",
+      }),
+    );
+
+    const thread = await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.session?.status === "ready" &&
+        candidate.homerManagedWorkState?.executionPolicy === "restart_in_place" &&
+        harness.provider.counts().startedCount === 3,
+    );
+
+    expect(thread.homerSuccessorThreadId).toBeNull();
+    expect(thread.homerTransitionKind).toBeNull();
+  });
+
+  it("promotes to successor thread when a requested turn stays pending past timeout", async () => {
+    const harness = await createHarness();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-homer-pending-timeout-start"),
+        threadId: asThreadId("thread-1"),
+        message: {
+          messageId: asMessageId("msg-homer-pending-timeout-start"),
+          role: "user",
+          text: "Continue managed work.",
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: "2026-04-13T12:30:00.000Z",
+      }),
+    );
+
+    harness.provider.emit({
+      type: "runtime.warning",
+      eventId: asEventId("evt-homer-pending-timeout"),
+      provider: "codex",
+      createdAt: "2026-04-13T12:30:21.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-pending-timeout"),
+      payload: {
+        message: "Still waiting for provider turn start.",
+      },
+    });
+
+    const sourceThread = await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.homerSuccessorThreadId !== null &&
+        candidate.session?.status === "stopped" &&
+        candidate.activities.some(
+          (activity) => activity.kind === T3_HOMER_ACTIVITY_KINDS.successorThreadSpawned,
+        ),
+    );
+
+    const promotionActivity = sourceThread.activities
+      .toReversed()
+      .find((activity) => activity.kind === T3_HOMER_ACTIVITY_KINDS.escalated);
+    const promotionPayload = promotionActivity?.payload as
+      | {
+          triggerKind?: string;
+          attemptCount?: number;
+          assignmentRevision?: number;
+          lastKnownTurnId?: string | null;
+          checkpointRef?: string | null;
+        }
+      | undefined;
+
+    expect(promotionPayload).toEqual(
+      expect.objectContaining({
+        triggerKind: "pending_turn_timeout",
+        attemptCount: 0,
+        assignmentRevision: 1,
+      }),
+    );
+    expect(promotionPayload?.lastKnownTurnId).toBe("turn-pending-timeout");
+  });
+
+  it("records escalation evidence for explicit manual successor promotion", async () => {
+    const harness = await createHarness();
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-13T12:40:00.000Z",
+        reason: "Manual successor-thread validation.",
+        executionPolicy: "spawn_successor_thread",
+      }),
+    );
+
+    const sourceThread = await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.homerSuccessorThreadId !== null &&
+        candidate.activities.some(
+          (activity) => activity.kind === T3_HOMER_ACTIVITY_KINDS.escalated,
+        ),
+    );
+
+    const promotionActivity = sourceThread.activities
+      .toReversed()
+      .find((activity) => activity.kind === T3_HOMER_ACTIVITY_KINDS.escalated);
+    const payload = promotionActivity?.payload as
+      | {
+          triggerKind?: string;
+          attemptCount?: number;
+          assignmentRevision?: number;
+          lastKnownTurnId?: string | null;
+          checkpointRef?: string | null;
+        }
+      | undefined;
+
+    expect(payload).toEqual(
+      expect.objectContaining({
+        triggerKind: "manual",
+        attemptCount: 0,
+        assignmentRevision: 1,
+      }),
+    );
+    expect("lastKnownTurnId" in (payload ?? {})).toBe(true);
+    expect("checkpointRef" in (payload ?? {})).toBe(true);
+  });
+
+  it("spawns a successor thread after repeated in-place restart failures and retires the old authority", async () => {
     const harness = await createHarness();
 
     await Effect.runPromise(
@@ -932,27 +1289,25 @@ describe("T3HomerSupervisor", () => {
     );
 
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.turn.start",
-        commandId: CommandId.make("cmd-homer-status-check"),
+      harness.supervisor.forceHandoff({
         threadId: asThreadId("thread-1"),
-        message: {
-          messageId: asMessageId("msg-homer-status-check"),
-          role: "user",
-          text: "Are you still working on the tasks?",
-          attachments: [],
-        },
-        runtimeMode: "full-access",
-        interactionMode: "default",
         createdAt: "2026-04-12T22:04:00.000Z",
+        reason: "Second intervention should still stay in place.",
       }),
+    );
+    await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.session?.status === "ready" &&
+        candidate.homerSuccessorThreadId === null &&
+        harness.provider.counts().startedCount === 2,
     );
 
     await Effect.runPromise(
       harness.supervisor.forceHandoff({
         threadId: asThreadId("thread-1"),
         createdAt: "2026-04-12T22:05:00.000Z",
-        reason: "Second intervention should promote to a successor thread.",
+        reason: "Third intervention should promote to a successor thread.",
       }),
     );
 
@@ -1040,8 +1395,8 @@ describe("T3HomerSupervisor", () => {
       "Treat short status checks, completion questions, and continue nudges as managed continuation, not as new assignments.",
     );
     expect(successorHandoffMessage).not.toContain("Are you still working on the tasks?");
-    expect(harness.provider.counts().stoppedCount).toBe(2);
-    expect(harness.provider.counts().startedCount).toBe(2);
+    expect(harness.provider.counts().stoppedCount).toBe(3);
+    expect(harness.provider.counts().startedCount).toBe(3);
     expect(harness.provider.counts().startedSessions.at(-1)?.threadId).toBe(successorThread?.id);
   });
 
