@@ -55,7 +55,11 @@ type HomerManagedFollowUpKind =
 type SupervisorDomainEvent = Extract<
   OrchestrationEvent,
   {
-    type: "thread.turn-start-requested" | "thread.turn-diff-completed";
+    type:
+      | "thread.turn-start-requested"
+      | "thread.turn-diff-completed"
+      | "thread.turn-interrupt-requested"
+      | "thread.session-stop-requested";
   }
 >;
 
@@ -78,6 +82,7 @@ type HomerState = {
   interventionInProgress: boolean;
   pendingReason: string | null;
   lastIntervenedTurnId: TurnId | null;
+  suppressInterventionUntilNextTurnStart: boolean;
 };
 
 function createInitialState(): HomerState {
@@ -90,6 +95,7 @@ function createInitialState(): HomerState {
     interventionInProgress: false,
     pendingReason: null,
     lastIntervenedTurnId: null,
+    suppressInterventionUntilNextTurnStart: false,
   };
 }
 
@@ -309,6 +315,49 @@ function getAuthoritativeUserMessages(thread: OrchestrationThread): Orchestratio
   return nonManagedMessages.length > 0 ? nonManagedMessages : userMessages;
 }
 
+function collectObservedThreadState(input: {
+  readonly thread: OrchestrationThread;
+  readonly taskAnchor: T3HomerTaskAnchor;
+  readonly reason?: string;
+}) {
+  const authoritativeMessages = getAuthoritativeUserMessages(input.thread);
+  const latestRelevantUserMessage = authoritativeMessages.at(-1) ?? null;
+  const latestReadyCheckpoint = input.thread.checkpoints
+    .toReversed()
+    .find((checkpoint) => checkpoint.status === "ready");
+  const latestCheckpoint = input.thread.checkpoints.at(-1) ?? null;
+  const relevantCheckpoint = latestReadyCheckpoint ?? latestCheckpoint ?? null;
+
+  return {
+    verifiedDone:
+      latestReadyCheckpoint !== undefined && latestReadyCheckpoint !== null
+        ? normalizeTrimmedValues([
+            `Latest known-good checkpoint is turn ${latestReadyCheckpoint.checkpointTurnCount}.`,
+            ...latestReadyCheckpoint.files.slice(0, 8).map((file) => `Touched ${file.path}`),
+          ])
+        : [],
+    verifiedNotDone: normalizeTrimmedValues([
+      input.reason ?? null,
+      latestRelevantUserMessage &&
+      latestRelevantUserMessage.id !== input.taskAnchor.authoritativeUserMessageId &&
+      latestRelevantUserMessage.text.trim() !== input.taskAnchor.objective.trim()
+        ? `Latest user input: ${truncateValue(latestRelevantUserMessage.text)}`
+        : null,
+      latestCheckpoint !== null && latestCheckpoint.status !== "ready"
+        ? `Checkpoint state is ${latestCheckpoint.status} after the last turn.`
+        : null,
+    ]),
+    verificationStillRequired:
+      latestCheckpoint?.status === "ready"
+        ? ["Run the next verification pass after the fresh session picks up the thread."]
+        : ["Checkpoint verification is incomplete. Re-check the working tree before broad edits."],
+    relevantFilePaths: normalizeTrimmedValues(
+      relevantCheckpoint?.files.slice(0, 12).map((file) => file.path) ?? [],
+    ),
+    checkpointRef: latestReadyCheckpoint?.checkpointRef ?? null,
+  };
+}
+
 function buildSuccessorHandoffPrompt(input: {
   readonly sourceThread: OrchestrationThread;
   readonly payload: T3HomerHandoffPayload;
@@ -386,6 +435,10 @@ function buildManagedContinuationPrompt(input: {
   readonly followUpText: string;
   readonly followUpKind: HomerManagedFollowUpKind;
 }) {
+  const observed = collectObservedThreadState({
+    thread: input.thread,
+    taskAnchor: input.taskAnchor,
+  });
   const sections = [
     "T3 Homer managed-work continuation.",
     "",
@@ -419,6 +472,21 @@ function buildManagedContinuationPrompt(input: {
     `Branch expectation: ${input.taskAnchor.branchExpectation ?? "current branch context"}`,
     "",
     ...buildCompletionContractLines(input.taskAnchor),
+    "",
+    "Observed state:",
+    ...(observed.verifiedDone.length > 0
+      ? observed.verifiedDone.map((entry) => `- ${entry}`)
+      : ["- No verified completed checkpoint is recorded on this thread yet."]),
+    "",
+    "Observed not done:",
+    ...(observed.verifiedNotDone.length > 0
+      ? observed.verifiedNotDone.map((entry) => `- ${entry}`)
+      : ["- No extra unfinished observations recorded."]),
+    "",
+    "Verification still required:",
+    ...observed.verificationStillRequired.map((entry) => `- ${entry}`),
+    "",
+    `Checkpoint ref: ${observed.checkpointRef ?? "none"}`,
     "",
     "Continue work from the current repository and thread state. Do not re-ask for the original assignment.",
   ];
@@ -566,6 +634,19 @@ const make = Effect.gen(function* () {
     });
   });
 
+  const releaseManagedAuthorityForExplicitStop = Effect.fn(
+    "releaseManagedAuthorityForExplicitStop",
+  )(function* (input: { readonly threadId: ThreadId }) {
+    const resolved = yield* resolveThread(input.threadId);
+    if (resolved.thread?.homerManagedWorkState === null || resolved.thread === null) {
+      return;
+    }
+    yield* setManagedWorkState({
+      threadId: input.threadId,
+      state: null,
+    });
+  });
+
   const selectExecutionPolicy = (
     threadId: ThreadId,
     explicitPolicy?: T3HomerExecutionPolicy,
@@ -645,48 +726,25 @@ const make = Effect.gen(function* () {
     readonly reason: string;
     readonly executionPolicy: T3HomerExecutionPolicy;
   }): T3HomerHandoffPayload => {
-    const authoritativeMessages = getAuthoritativeUserMessages(input.thread);
-    const latestRelevantUserMessage = authoritativeMessages.at(-1) ?? null;
-    const latestReadyCheckpoint = input.thread.checkpoints
-      .toReversed()
-      .find((checkpoint) => checkpoint.status === "ready");
-    const latestCheckpoint = input.thread.checkpoints.at(-1) ?? null;
-    const relevantCheckpoint = latestReadyCheckpoint ?? latestCheckpoint ?? null;
-    const relevantFilePaths = normalizeTrimmedValues(
-      relevantCheckpoint?.files.slice(0, 12).map((file) => file.path) ?? [],
-    );
+    const observed = collectObservedThreadState({
+      thread: input.thread,
+      taskAnchor: input.taskAnchor,
+      reason: input.reason,
+    });
 
     return {
       sourceThreadId: input.thread.id,
       goal: input.taskAnchor.objective,
       taskAnchor: input.taskAnchor,
-      verifiedDone:
-        latestReadyCheckpoint !== undefined && latestReadyCheckpoint !== null
-          ? normalizeTrimmedValues([
-              `Latest known-good checkpoint is turn ${latestReadyCheckpoint.checkpointTurnCount}.`,
-              ...latestReadyCheckpoint.files.slice(0, 8).map((file) => `Touched ${file.path}`),
-            ])
-          : [],
-      verifiedNotDone: normalizeTrimmedValues([
-        input.reason,
-        latestRelevantUserMessage &&
-        latestRelevantUserMessage.id !== input.taskAnchor.authoritativeUserMessageId &&
-        latestRelevantUserMessage.text.trim() !== input.taskAnchor.objective.trim()
-          ? `Latest user input: ${truncateValue(latestRelevantUserMessage.text)}`
-          : null,
-      ]),
+      verifiedDone: observed.verifiedDone,
+      verifiedNotDone: observed.verifiedNotDone,
       nextAction:
         input.executionPolicy === "spawn_successor_thread"
           ? "Continue the same assignment in this successor thread. Treat this handoff as authoritative context."
           : "Continue from a fresh provider session on the same thread using the current repo state.",
-      verificationStillRequired:
-        latestCheckpoint?.status === "ready"
-          ? ["Run the next verification pass after the fresh session picks up the thread."]
-          : [
-              "Checkpoint verification is incomplete. Re-check the working tree before broad edits.",
-            ],
-      relevantFilePaths,
-      checkpointRef: latestReadyCheckpoint?.checkpointRef ?? null,
+      verificationStillRequired: observed.verificationStillRequired,
+      relevantFilePaths: observed.relevantFilePaths,
+      checkpointRef: observed.checkpointRef,
       executionPolicy: input.executionPolicy,
     };
   };
@@ -1403,6 +1461,7 @@ const make = Effect.gen(function* () {
       state.pendingReason = null;
       state.supervisorState = "continue";
       state.lastIntervenedTurnId = null;
+      state.suppressInterventionUntilNextTurnStart = false;
       yield* announceSupervisionIfNeeded({
         threadId: event.payload.threadId,
         createdAt: event.payload.createdAt,
@@ -1410,7 +1469,26 @@ const make = Effect.gen(function* () {
       return;
     }
 
+    if (
+      event.type === "thread.turn-interrupt-requested" ||
+      event.type === "thread.session-stop-requested"
+    ) {
+      state.warningCount = 0;
+      state.errorCount = 0;
+      state.pendingReason = null;
+      state.supervisorState = "continue";
+      state.lastIntervenedTurnId = null;
+      state.suppressInterventionUntilNextTurnStart = true;
+      yield* releaseManagedAuthorityForExplicitStop({
+        threadId: event.payload.threadId,
+      });
+      return;
+    }
+
     if (event.type === "thread.turn-diff-completed") {
+      if (state.suppressInterventionUntilNextTurnStart) {
+        return;
+      }
       if (hasHandledTurn(state, event.payload.turnId) || state.interventionInProgress) {
         return;
       }
@@ -1466,6 +1544,10 @@ const make = Effect.gen(function* () {
 
     const state = getState(event.threadId);
     const turnId = toTurnId(event.turnId);
+
+    if (state.suppressInterventionUntilNextTurnStart) {
+      return;
+    }
 
     switch (event.type) {
       case "thread.token-usage.updated": {
@@ -1575,7 +1657,9 @@ const make = Effect.gen(function* () {
       Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) => {
         if (
           event.type !== "thread.turn-start-requested" &&
-          event.type !== "thread.turn-diff-completed"
+          event.type !== "thread.turn-diff-completed" &&
+          event.type !== "thread.turn-interrupt-requested" &&
+          event.type !== "thread.session-stop-requested"
         ) {
           return Effect.void;
         }

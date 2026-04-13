@@ -13,6 +13,7 @@ import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effe
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { checkpointRefForThreadTurn } from "../../checkpointing/Utils.ts";
 import { ServerConfig } from "../../config.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
@@ -856,6 +857,62 @@ describe("T3HomerSupervisor", () => {
 
     const successorThread = await readThreadById(harness.engine, successorThreadId);
     expect(successorThread?.homerManagedWorkState).toBeNull();
+  });
+
+  it("stops Homer recovery after an explicit user interrupt", async () => {
+    const harness = await createHarness();
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-12T22:40:00.000Z",
+        reason: "Prepare managed state before testing stop behavior.",
+      }),
+    );
+
+    const managedThread = await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.session?.status === "ready" &&
+        candidate.homerManagedWorkState?.status === "active",
+    );
+    expect(managedThread.homerManagedWorkState?.status).toBe("active");
+    expect(harness.provider.counts().startedCount).toBe(1);
+    expect(harness.provider.counts().stoppedCount).toBe(1);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.interrupt",
+        commandId: CommandId.make("cmd-homer-user-stop"),
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-12T22:41:00.000Z",
+      }),
+    );
+
+    await waitForThread(harness.engine, (candidate) => candidate.homerManagedWorkState === null);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.diff.complete",
+        commandId: CommandId.make("cmd-homer-post-stop-diff"),
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-after-stop"),
+        completedAt: "2026-04-12T22:41:05.000Z",
+        checkpointRef: checkpointRefForThreadTurn(asThreadId("thread-1"), 1),
+        status: "missing",
+        files: [],
+        checkpointTurnCount: 1,
+        createdAt: "2026-04-12T22:41:05.000Z",
+      }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const stoppedThread = await readThread(harness.engine);
+
+    expect(stoppedThread?.homerManagedWorkState).toBeNull();
+    expect(stoppedThread?.homerSuccessorThreadId).toBeNull();
+    expect(harness.provider.counts().startedCount).toBe(1);
+    expect(harness.provider.counts().stoppedCount).toBe(1);
   });
 
   it("supports an explicit successor-thread manual trigger for dev validation", async () => {
