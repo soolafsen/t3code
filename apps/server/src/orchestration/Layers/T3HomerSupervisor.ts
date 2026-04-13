@@ -945,6 +945,26 @@ const make = Effect.gen(function* () {
         interventionCount: nextInterventionCount,
       },
     });
+    yield* orchestrationEngine.dispatch({
+      type: "thread.turn.start",
+      commandId: serverCommandId("restart-in-place-turn-start"),
+      threadId: input.threadId,
+      message: {
+        messageId: MessageId.make(`t3homer:managed-resume:${crypto.randomUUID()}`),
+        role: "user",
+        text: buildManagedContinuationPrompt({
+          thread,
+          taskAnchor,
+          executionPolicy: "restart_in_place",
+          followUpText: `Automatic continuation after fresh-session handoff. Trigger reason: ${input.reason}`,
+          followUpKind: "resume_managed_work",
+        }),
+        attachments: [],
+      },
+      runtimeMode: thread.runtimeMode,
+      interactionMode: thread.interactionMode,
+      createdAt: input.createdAt,
+    });
 
     state.warningCount = 0;
     state.errorCount = 0;

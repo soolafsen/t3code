@@ -302,15 +302,28 @@ describe("T3HomerSupervisor", () => {
       (candidate) =>
         candidate.activities.some(
           (activity) => activity.kind === T3_HOMER_ACTIVITY_KINDS.sessionStarted,
-        ) && candidate.session?.status === "ready",
+        ) &&
+        candidate.session?.status === "ready" &&
+        candidate.messages.some(
+          (message) =>
+            message.role === "user" && message.text.includes("T3 Homer managed-work continuation."),
+        ),
     );
 
     const activityKinds = thread.activities.map((activity) => activity.kind);
+    const continuationPrompt =
+      thread.messages.find(
+        (message) =>
+          message.role === "user" && message.text.includes("T3 Homer managed-work continuation."),
+      )?.text ?? null;
     expect(activityKinds).toContain(T3_HOMER_ACTIVITY_KINDS.supervising);
     expect(activityKinds).toContain(T3_HOMER_ACTIVITY_KINDS.prepareHandoff);
     expect(activityKinds).toContain(T3_HOMER_ACTIVITY_KINDS.sessionEnded);
     expect(activityKinds).toContain(T3_HOMER_ACTIVITY_KINDS.handoffPrepared);
     expect(activityKinds).toContain(T3_HOMER_ACTIVITY_KINDS.sessionStarted);
+    expect(continuationPrompt).toContain("Execution policy: restart_in_place");
+    expect(continuationPrompt).toContain("Managed follow-up kind: resume_managed_work");
+    expect(continuationPrompt).toContain("Automatic continuation after fresh-session handoff.");
     expect(harness.provider.counts().stoppedCount).toBe(1);
     expect(harness.provider.counts().startedCount).toBe(1);
   });
