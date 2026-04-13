@@ -42,6 +42,13 @@ const HOMER_INSTRUCTION_DELTA_ENTRY_LIMIT = 3;
 const HOMER_OBJECTIVE_URL_ONLY_RE = /^https?:\/\/\S+$/i;
 const HOMER_OBJECTIVE_READ_AND_IMPLEMENT_URL_RE =
   /^read this and implement it:\s*(https?:\/\/\S+)$/i;
+const HOMER_OBJECTIVE_ACK_ONLY_RE =
+  /^(?:ok|okay|thanks|thank you|thx|good|great|nice|cool|perfect|sounds good|got it|yep|yes|no)\.?$/i;
+const HOMER_OBJECTIVE_PREFIX_RE =
+  /^(?:please\s+)?(?:can you\s+)?(?:could you\s+)?(?:i want you to\s+)?(?:you need to\s+)?/i;
+const HOMER_OBJECTIVE_ACTION_HINT_RE =
+  /\b(?:implement|fix|update|change|add|remove|refactor|rewrite|rename|adjust|improve|test|verify|check|run|use|create|delete|move|stack|align|patch)\b/i;
+const HOMER_OBJECTIVE_MIN_CHARS = 24;
 const HOMER_STATUS_CHECK_PATTERNS = [
   /^(?:are you still working|are you still working on (?:the )?tasks|still working|status|status update|progress|progress update|working on (?:the )?tasks)\??$/i,
 ] as const;
@@ -410,6 +417,30 @@ function extractNonGoals(messages: ReadonlyArray<OrchestrationMessage>): string[
   );
 }
 
+function extractActionableObjectiveFromMessage(text: string): string | null {
+  const firstNonEmptyLine = text.split(/\r?\n/).find((line) => line.trim().length > 0) ?? "";
+  const normalizedLine = normalizeMessageText(firstNonEmptyLine);
+  if (normalizedLine.length === 0 || HOMER_OBJECTIVE_ACK_ONLY_RE.test(normalizedLine)) {
+    return null;
+  }
+  const cleanedLine = normalizedLine.replace(HOMER_OBJECTIVE_PREFIX_RE, "").trim();
+  if (cleanedLine.length === 0) {
+    return null;
+  }
+
+  const messageHasSourceDocs = extractSourceDocumentPaths(text).length > 0;
+  const looksActionable =
+    cleanedLine.length >= HOMER_OBJECTIVE_MIN_CHARS ||
+    HOMER_OBJECTIVE_ACTION_HINT_RE.test(cleanedLine) ||
+    messageHasSourceDocs ||
+    HOMER_OBJECTIVE_URL_ONLY_RE.test(cleanedLine);
+  if (!looksActionable) {
+    return null;
+  }
+
+  return truncateValue(cleanedLine, HOMER_GOAL_MAX_CHARS);
+}
+
 function extractObjectiveFromMessages(
   messages: ReadonlyArray<OrchestrationMessage>,
   fallback: string,
@@ -439,6 +470,11 @@ function extractObjectiveFromMessages(
       if (objective.length > 0) {
         return objective;
       }
+    }
+
+    const inferredObjective = extractActionableObjectiveFromMessage(message.text);
+    if (inferredObjective !== null) {
+      return inferredObjective;
     }
   }
 

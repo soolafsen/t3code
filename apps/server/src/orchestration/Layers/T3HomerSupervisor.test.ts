@@ -594,6 +594,77 @@ describe("T3HomerSupervisor", () => {
     expect(continuationPrompt).toContain("Use $collaboration-defaults and work autonomously.");
   });
 
+  it("refreshes objective from a free-form actionable instruction before restart handoff", async () => {
+    const harness = await createHarness();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-homer-freeform-objective-base"),
+        threadId: asThreadId("thread-1"),
+        message: {
+          messageId: asMessageId("msg-homer-freeform-objective-base"),
+          role: "user",
+          text: "Implement successor fallback docs",
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: "2026-04-13T11:00:00.000Z",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-homer-freeform-objective-update"),
+        threadId: asThreadId("thread-1"),
+        message: {
+          messageId: asMessageId("msg-homer-freeform-objective-update"),
+          role: "user",
+          text: "This is too wide, put them on top of each other, we have the space.",
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: "2026-04-13T11:01:00.000Z",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-13T11:02:00.000Z",
+        reason: "Verify free-form objective continuity in managed handoff.",
+      }),
+    );
+
+    const thread = await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.session?.status === "ready" &&
+        candidate.homerTaskAnchor?.authoritativeUserMessageId ===
+          asMessageId("msg-homer-freeform-objective-update") &&
+        candidate.messages.some(
+          (message) =>
+            message.role === "user" && message.text.includes("T3 Homer managed-work continuation."),
+        ),
+    );
+
+    const continuationPrompt =
+      thread.messages.find(
+        (message) =>
+          message.role === "user" && message.text.includes("T3 Homer managed-work continuation."),
+      )?.text ?? "";
+
+    expect(thread.homerTaskAnchor?.objective).toContain(
+      "This is too wide, put them on top of each other, we have the space.",
+    );
+    expect(continuationPrompt).toContain(
+      "Objective: This is too wide, put them on top of each other, we have the space.",
+    );
+  });
+
   it("preserves mid-session instruction updates across explicitly triggered successor-thread handoffs", async () => {
     const harness = await createHarness();
 
