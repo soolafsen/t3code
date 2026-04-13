@@ -12,6 +12,7 @@ Homer is a deterministic server-side supervisor for provider sessions.
 - It applies explicit rules when session health degrades.
 - It keeps continuation tied to the latest real user intent.
 - It is deterministic because session restarts and handoffs must stay predictable, auditable, and resistant to instruction drift.
+- Background on why this matters at scale: [Context Rot (Chroma Research)](https://www.trychroma.com/research/context-rot), which shows both context-quality decay and quality loss in large contexts.
 
 ## How Homer Handles Sessions
 
