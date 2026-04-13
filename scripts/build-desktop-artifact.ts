@@ -521,6 +521,9 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       target: [target],
       icon: "icon.ico",
     };
+    // node-pty ships prebuilt win32 binaries and forced rebuilds can fail on local
+    // machines missing Spectre-mitigated MSVC libs.
+    buildConfig.npmRebuild = false;
     if (signed) {
       winConfig.azureSignOptions = yield* AzureTrustedSigningOptionsConfig;
     }

@@ -18,6 +18,12 @@ That starts the standalone Electron wrapper, which is now the default local run 
 
 Short run guide: [docs/how-to-run.md](./docs/how-to-run.md)
 
+## Download (Windows)
+
+1. Go to [Releases](https://github.com/soolafsen/t3code/releases/latest).
+2. Download `T3-Homer-*-x64.exe`.
+3. Run the installer.
+
 ## What This Fork Adds
 
 ### 1. Desktop scaling that actually sticks
