@@ -348,6 +348,7 @@ describe("T3HomerSupervisor", () => {
     expect(continuationPrompt).toContain("Execution policy: restart_in_place");
     expect(continuationPrompt).toContain("Managed follow-up kind: resume_managed_work");
     expect(continuationPrompt).toContain("Automatic continuation after fresh-session handoff.");
+    expect(continuationPrompt).toContain("Execution directives:");
     expect(harness.provider.counts().stoppedCount).toBe(1);
     expect(harness.provider.counts().startedCount).toBe(1);
   });
@@ -703,6 +704,103 @@ describe("T3HomerSupervisor", () => {
     );
     expect(handoffPrompt).toContain("Assignment revision: 2");
     expect(handoffPrompt).toContain("Use $collaboration-defaults and work autonomously.");
+  });
+
+  it("keeps continuation and successor handoff prompts actionable without Homer meta chatter", async () => {
+    const harness = await createHarness();
+    const objectiveUrl = "https://github.com/soolafsen/t3code/blob/dev/docs/HomerMinimalSafeFix.md";
+    const executableObjective = `Objective: Implement the tasks defined in ${objectiveUrl} in this repository.`;
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-homer-url-objective-base"),
+        threadId: asThreadId("thread-1"),
+        message: {
+          messageId: asMessageId("msg-homer-url-objective-base"),
+          role: "user",
+          text: `Read this and implement it: ${objectiveUrl}`,
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: "2026-04-13T10:30:00.000Z",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-13T10:31:00.000Z",
+        reason: "Prepare a managed continuation prompt.",
+      }),
+    );
+
+    const resumedThread = await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.session?.status === "ready" &&
+        candidate.messages.some(
+          (message) =>
+            message.role === "user" && message.text.includes("T3 Homer managed-work continuation."),
+        ),
+    );
+
+    const continuationPrompt =
+      resumedThread.messages
+        .toReversed()
+        .find(
+          (message) =>
+            message.role === "user" && message.text.includes("T3 Homer managed-work continuation."),
+        )?.text ?? "";
+    expect(continuationPrompt).toContain(executableObjective);
+    expect(continuationPrompt).toContain("Execution directives:");
+    expect(continuationPrompt).not.toContain(
+      "Latest user input: T3 Homer managed-work continuation.",
+    );
+    expect(continuationPrompt).not.toContain(
+      "Latest user input: T3 Homer successor-thread handoff.",
+    );
+    expect(continuationPrompt).not.toContain("Authorit...");
+
+    await Effect.runPromise(
+      harness.supervisor.forceHandoff({
+        threadId: asThreadId("thread-1"),
+        createdAt: "2026-04-13T10:32:00.000Z",
+        reason: "Promote to successor after continuation prompt exists.",
+      }),
+    );
+
+    const sourceThread = await waitForThread(
+      harness.engine,
+      (candidate) =>
+        candidate.homerSuccessorThreadId !== null && candidate.session?.status === "stopped",
+    );
+    const successorThreadId = sourceThread.homerSuccessorThreadId!;
+
+    const successorThread = await waitForThreadById(
+      harness.engine,
+      successorThreadId,
+      (candidate) =>
+        candidate.session?.status === "ready" &&
+        candidate.messages.some(
+          (message) =>
+            message.role === "user" && message.text.includes("T3 Homer successor-thread handoff."),
+        ),
+    );
+
+    const successorPrompt =
+      successorThread.messages
+        .toReversed()
+        .find(
+          (message) =>
+            message.role === "user" && message.text.includes("T3 Homer successor-thread handoff."),
+        )?.text ?? "";
+    expect(successorPrompt).toContain(executableObjective);
+    expect(successorPrompt).toContain("Execution directives:");
+    expect(successorPrompt).not.toContain("Latest user input: T3 Homer managed-work continuation.");
+    expect(successorPrompt).not.toContain("Latest user input: T3 Homer successor-thread handoff.");
+    expect(successorPrompt).not.toContain("Authorit...");
   });
 
   it("increments revision only for real instruction changes, not managed status checks", async () => {

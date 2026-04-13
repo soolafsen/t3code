@@ -34,6 +34,11 @@ const HOMER_DETAIL_MAX_CHARS = 180;
 const HOMER_TITLE_SUFFIX_RE = /\s+\(Homer \d+\)$/;
 const HOMER_SECTION_HEADER_RE = /^\s*([A-Za-z][A-Za-z\s/-]+):\s*$/;
 const HOMER_MANAGED_FOLLOW_UP_MAX_CHARS = 200;
+const HOMER_INSTRUCTION_DELTA_MESSAGE_LIMIT = 5;
+const HOMER_INSTRUCTION_DELTA_ENTRY_LIMIT = 3;
+const HOMER_OBJECTIVE_URL_ONLY_RE = /^https?:\/\/\S+$/i;
+const HOMER_OBJECTIVE_READ_AND_IMPLEMENT_URL_RE =
+  /^read this and implement it:\s*(https?:\/\/\S+)$/i;
 const HOMER_STATUS_CHECK_PATTERNS = [
   /^(?:are you still working|are you still working on (?:the )?tasks|still working|status|status update|progress|progress update|working on (?:the )?tasks)\??$/i,
 ] as const;
@@ -244,6 +249,16 @@ function buildCompletionContractLines(taskAnchor: T3HomerTaskAnchor): string[] {
   ];
 }
 
+function buildExecutionDirectiveLines(): string[] {
+  return [
+    "Execution directives:",
+    "- Implement the assignment directly in repository files now.",
+    "- Do not create TODO, plan, or handoff documents unless explicitly requested.",
+    "- Keep scope minimal and avoid unrelated architecture changes.",
+    "- Run required checks/tests and report concrete pass/fail outcomes.",
+  ];
+}
+
 function isHomerInjectedUserMessage(text: string): boolean {
   return (
     text.startsWith("T3 Homer successor-thread handoff.") ||
@@ -317,6 +332,16 @@ function extractObjectiveFromMessages(
   fallback: string,
 ): string {
   for (const message of messages.toReversed()) {
+    const readAndImplementMatch = message.text.match(
+      /^\s*(?:read this and implement it|implement this):\s*(.+)$/im,
+    );
+    if (readAndImplementMatch?.[1]) {
+      const objective = truncateValue(readAndImplementMatch[0], HOMER_GOAL_MAX_CHARS);
+      if (objective.length > 0) {
+        return objective;
+      }
+    }
+
     const explicitTaskMatch = message.text.match(/^\s*Your task is\s+(.+)$/im);
     if (explicitTaskMatch?.[1]) {
       const objective = truncateValue(explicitTaskMatch[1], HOMER_GOAL_MAX_CHARS);
@@ -335,6 +360,33 @@ function extractObjectiveFromMessages(
   }
 
   return fallback;
+}
+
+function normalizeObjectiveForExecution(
+  objective: string,
+  sourceDocumentPaths: ReadonlyArray<string>,
+): string {
+  const trimmed = objective.trim();
+  const readAndImplementUrlMatch = trimmed.match(HOMER_OBJECTIVE_READ_AND_IMPLEMENT_URL_RE);
+  const urlOnlyObjective = HOMER_OBJECTIVE_URL_ONLY_RE.test(trimmed) ? trimmed : null;
+  const normalizedDocReference = readAndImplementUrlMatch?.[1] ?? urlOnlyObjective;
+  if (normalizedDocReference !== null && normalizedDocReference.trim().length > 0) {
+    return truncateValue(
+      `Implement the tasks defined in ${normalizedDocReference} in this repository.`,
+      HOMER_GOAL_MAX_CHARS,
+    );
+  }
+  if (trimmed.length > 0) {
+    return truncateValue(trimmed, HOMER_GOAL_MAX_CHARS);
+  }
+  const fallbackDoc = sourceDocumentPaths.at(0);
+  if (fallbackDoc) {
+    return truncateValue(
+      `Implement the tasks defined in ${fallbackDoc} in this repository.`,
+      HOMER_GOAL_MAX_CHARS,
+    );
+  }
+  return trimmed;
 }
 
 function extractInstructionDeltasFromMessage(text: string): string[] {
@@ -401,10 +453,10 @@ function buildInstructionDeltaSnapshot(input: {
   readonly revision: number;
   readonly createdAt: string;
 }): T3HomerInstructionDeltaSnapshot {
-  const recentMessages = input.authoritativeMessages.slice(-5);
+  const recentMessages = input.authoritativeMessages.slice(-HOMER_INSTRUCTION_DELTA_MESSAGE_LIMIT);
   const instructionDeltas = normalizeTrimmedValues(
     recentMessages.flatMap((message) => extractInstructionDeltasFromMessage(message.text)),
-  ).slice(-5);
+  ).slice(-HOMER_INSTRUCTION_DELTA_ENTRY_LIMIT);
 
   return {
     instructionDeltas,
@@ -437,8 +489,16 @@ function collectObservedThreadState(input: {
   readonly taskAnchor: T3HomerTaskAnchor;
   readonly reason?: string;
 }) {
-  const authoritativeMessages = getAuthoritativeUserMessages(input.thread);
-  const latestRelevantUserMessage = authoritativeMessages.at(-1) ?? null;
+  const latestRelevantUserMessage =
+    getUserMessages(input.thread)
+      .toReversed()
+      .find(
+        (message) =>
+          !isManagedFollowUpMessage(message.text) &&
+          !isHomerInjectedUserMessage(message.text) &&
+          message.id !== input.taskAnchor.authoritativeUserMessageId &&
+          normalizeMessageText(message.text) !== normalizeMessageText(input.taskAnchor.objective),
+      ) ?? null;
   const latestReadyCheckpoint = input.thread.checkpoints
     .toReversed()
     .find((checkpoint) => checkpoint.status === "ready");
@@ -455,10 +515,8 @@ function collectObservedThreadState(input: {
         : [],
     verifiedNotDone: normalizeTrimmedValues([
       input.reason ?? null,
-      latestRelevantUserMessage &&
-      latestRelevantUserMessage.id !== input.taskAnchor.authoritativeUserMessageId &&
-      latestRelevantUserMessage.text.trim() !== input.taskAnchor.objective.trim()
-        ? `Latest user input: ${truncateValue(latestRelevantUserMessage.text)}`
+      latestRelevantUserMessage
+        ? `Latest real user input differs from authoritative assignment (message ${latestRelevantUserMessage.id}).`
         : null,
       latestCheckpoint !== null && latestCheckpoint.status !== "ready"
         ? `Checkpoint state is ${latestCheckpoint.status} after the last turn.`
@@ -480,6 +538,10 @@ function buildSuccessorHandoffPrompt(input: {
   readonly payload: T3HomerHandoffPayload;
 }) {
   const { taskAnchor } = input.payload;
+  const executableObjective = normalizeObjectiveForExecution(
+    taskAnchor.objective,
+    taskAnchor.sourceDocumentPaths,
+  );
   const instructionDeltaSnapshot =
     taskAnchor.instructionDeltaSnapshot ?? input.payload.instructionDeltaSnapshot;
   const sections = [
@@ -490,7 +552,7 @@ function buildSuccessorHandoffPrompt(input: {
     `Execution policy: ${input.payload.executionPolicy}`,
     "",
     "Authoritative assignment:",
-    `Objective: ${taskAnchor.objective}`,
+    `Objective: ${executableObjective}`,
     "",
     "Source docs:",
     ...(taskAnchor.sourceDocumentPaths.length > 0
@@ -523,7 +585,9 @@ function buildSuccessorHandoffPrompt(input: {
     "- Treat short status checks, completion questions, and continue nudges as managed continuation, not as new assignments.",
     "- Do not ask what the original assignment was.",
     "",
-    `Goal: ${input.payload.goal}`,
+    ...buildExecutionDirectiveLines(),
+    "",
+    `Goal: ${executableObjective}`,
     "",
     "Verified done:",
     ...(input.payload.verifiedDone.length > 0
@@ -565,6 +629,10 @@ function buildManagedContinuationPrompt(input: {
     thread: input.thread,
     taskAnchor: input.taskAnchor,
   });
+  const executableObjective = normalizeObjectiveForExecution(
+    input.taskAnchor.objective,
+    input.taskAnchor.sourceDocumentPaths,
+  );
   const instructionDeltaSnapshot = input.taskAnchor.instructionDeltaSnapshot;
   const followUpSummary = renderManagedFollowUpSummary(input.followUpKind, input.followUpText);
   const sections = [
@@ -580,7 +648,9 @@ function buildManagedContinuationPrompt(input: {
     "- Continue the existing authoritative task until the user gives a real new instruction.",
     "- If the task is not complete, continue working or report what remains without claiming completion.",
     "",
-    `Objective: ${input.taskAnchor.objective}`,
+    ...buildExecutionDirectiveLines(),
+    "",
+    `Objective: ${executableObjective}`,
     "",
     "Source docs:",
     ...(input.taskAnchor.sourceDocumentPaths.length > 0
@@ -708,6 +778,84 @@ const make = Effect.gen(function* () {
     });
   });
 
+  const appendAssignmentRevisionUpdatedActivity = Effect.fn(
+    "appendAssignmentRevisionUpdatedActivity",
+  )(function* (input: {
+    readonly threadId: ThreadId;
+    readonly previousRevision: number | null;
+    readonly nextRevision: number;
+    readonly authoritativeUserMessageId: MessageId | null;
+    readonly createdAt: string;
+    readonly turnId?: TurnId | null;
+  }) {
+    yield* appendActivity({
+      threadId: input.threadId,
+      kind: T3_HOMER_ACTIVITY_KINDS.assignmentRevisionUpdated,
+      summary:
+        input.previousRevision === null
+          ? `T3 Homer set authoritative assignment revision ${input.nextRevision}`
+          : `T3 Homer updated authoritative assignment revision ${input.previousRevision} -> ${input.nextRevision}`,
+      createdAt: input.createdAt,
+      ...(input.turnId === undefined ? {} : { turnId: input.turnId }),
+      payload: {
+        previousRevision: input.previousRevision,
+        nextRevision: input.nextRevision,
+        authoritativeUserMessageId: input.authoritativeUserMessageId,
+      },
+    });
+  });
+
+  const appendInstructionSnapshotWrittenActivity = Effect.fn(
+    "appendInstructionSnapshotWrittenActivity",
+  )(function* (input: {
+    readonly threadId: ThreadId;
+    readonly snapshot: T3HomerInstructionDeltaSnapshot;
+    readonly createdAt: string;
+    readonly turnId?: TurnId | null;
+  }) {
+    yield* appendActivity({
+      threadId: input.threadId,
+      kind: T3_HOMER_ACTIVITY_KINDS.instructionSnapshotWritten,
+      summary: `T3 Homer wrote instruction snapshot r${input.snapshot.snapshotRevision} (${input.snapshot.instructionDeltas.length} delta${input.snapshot.instructionDeltas.length === 1 ? "" : "s"})`,
+      createdAt: input.createdAt,
+      ...(input.turnId === undefined ? {} : { turnId: input.turnId }),
+      payload: {
+        snapshotRevision: input.snapshot.snapshotRevision,
+        instructionDeltas: input.snapshot.instructionDeltas,
+        createdAt: input.snapshot.createdAt,
+      },
+    });
+  });
+
+  const appendContinuityPromptConsumedActivity = Effect.fn(
+    "appendContinuityPromptConsumedActivity",
+  )(function* (input: {
+    readonly threadId: ThreadId;
+    readonly promptKind: "managed_continuation" | "successor_handoff";
+    readonly executionPolicy: T3HomerExecutionPolicy;
+    readonly revision: number;
+    readonly snapshotRevision: number;
+    readonly createdAt: string;
+    readonly turnId?: TurnId | null;
+  }) {
+    yield* appendActivity({
+      threadId: input.threadId,
+      kind: T3_HOMER_ACTIVITY_KINDS.continuityPromptConsumed,
+      summary:
+        input.promptKind === "managed_continuation"
+          ? "T3 Homer injected managed continuation prompt"
+          : "T3 Homer injected successor handoff prompt",
+      createdAt: input.createdAt,
+      ...(input.turnId === undefined ? {} : { turnId: input.turnId }),
+      payload: {
+        promptKind: input.promptKind,
+        executionPolicy: input.executionPolicy,
+        revision: input.revision,
+        snapshotRevision: input.snapshotRevision,
+      },
+    });
+  });
+
   const appendSystemMessage = Effect.fn("appendSystemMessage")(function* (input: {
     readonly threadId: ThreadId;
     readonly text: string;
@@ -796,6 +944,8 @@ const make = Effect.gen(function* () {
   const resolveTaskAnchor = Effect.fn("resolveTaskAnchor")(function* (input: {
     readonly thread: OrchestrationThread;
     readonly createdAt: string;
+    readonly refreshSnapshotBeforeTransition?: boolean;
+    readonly turnId?: TurnId | null;
   }) {
     const authoritativeMessages = getAuthoritativeUserMessages(input.thread);
     const latestAuthoritativeMessage = authoritativeMessages.at(-1) ?? null;
@@ -806,11 +956,14 @@ const make = Effect.gen(function* () {
       requiredExactCompletionPhrase,
     );
     const existingTaskAnchor = input.thread.homerTaskAnchor;
-    const objective = extractObjectiveFromMessages(
-      authoritativeMessages,
-      existingTaskAnchor?.objective ?? input.thread.title,
-    );
     const sourceDocumentPaths = extractSourceDocumentPaths(allRelevantText);
+    const objective = normalizeObjectiveForExecution(
+      extractObjectiveFromMessages(
+        authoritativeMessages,
+        existingTaskAnchor?.objective ?? input.thread.title,
+      ),
+      sourceDocumentPaths,
+    );
     const constraints = extractConstraints(authoritativeMessages);
     const nonGoals = extractNonGoals(authoritativeMessages);
     const derivedRevisionFloor = Math.max(authoritativeMessages.length, 1);
@@ -837,6 +990,7 @@ const make = Effect.gen(function* () {
       const revision = instructionChangesDetected
         ? Math.max(existingTaskAnchor.revision + 1, derivedRevisionFloor)
         : existingTaskAnchor.revision;
+      const shouldRefreshSnapshot = input.refreshSnapshotBeforeTransition === true;
       const refreshedInstructionDeltaSnapshot: T3HomerInstructionDeltaSnapshot = {
         ...instructionDeltaSnapshot,
         snapshotRevision: revision,
@@ -864,6 +1018,7 @@ const make = Effect.gen(function* () {
 
       if (
         !instructionChangesDetected &&
+        !shouldRefreshSnapshot &&
         refreshedTaskAnchor.authoritativeUserMessageId ===
           existingTaskAnchor.authoritativeUserMessageId
       ) {
@@ -875,6 +1030,23 @@ const make = Effect.gen(function* () {
         commandId: serverCommandId("task-anchor-refresh"),
         threadId: input.thread.id,
         homerTaskAnchor: refreshedTaskAnchor,
+      });
+
+      if (revision !== existingTaskAnchor.revision) {
+        yield* appendAssignmentRevisionUpdatedActivity({
+          threadId: input.thread.id,
+          previousRevision: existingTaskAnchor.revision,
+          nextRevision: revision,
+          authoritativeUserMessageId,
+          createdAt: input.createdAt,
+          ...(input.turnId === undefined ? {} : { turnId: input.turnId }),
+        });
+      }
+      yield* appendInstructionSnapshotWrittenActivity({
+        threadId: input.thread.id,
+        snapshot: refreshedTaskAnchor.instructionDeltaSnapshot ?? refreshedInstructionDeltaSnapshot,
+        createdAt: input.createdAt,
+        ...(input.turnId === undefined ? {} : { turnId: input.turnId }),
       });
 
       return refreshedTaskAnchor;
@@ -903,6 +1075,24 @@ const make = Effect.gen(function* () {
       threadId: input.thread.id,
       homerTaskAnchor: taskAnchor,
     });
+    yield* appendAssignmentRevisionUpdatedActivity({
+      threadId: input.thread.id,
+      previousRevision: null,
+      nextRevision: taskAnchor.revision,
+      authoritativeUserMessageId: taskAnchor.authoritativeUserMessageId,
+      createdAt: input.createdAt,
+      ...(input.turnId === undefined ? {} : { turnId: input.turnId }),
+    });
+    yield* appendInstructionSnapshotWrittenActivity({
+      threadId: input.thread.id,
+      snapshot: taskAnchor.instructionDeltaSnapshot ?? {
+        instructionDeltas: [],
+        snapshotRevision: taskAnchor.revision,
+        createdAt: taskAnchor.updatedAt,
+      },
+      createdAt: input.createdAt,
+      ...(input.turnId === undefined ? {} : { turnId: input.turnId }),
+    });
 
     return taskAnchor;
   });
@@ -921,7 +1111,10 @@ const make = Effect.gen(function* () {
 
     return {
       sourceThreadId: input.thread.id,
-      goal: input.taskAnchor.objective,
+      goal: normalizeObjectiveForExecution(
+        input.taskAnchor.objective,
+        input.taskAnchor.sourceDocumentPaths,
+      ),
       taskAnchor: input.taskAnchor,
       instructionDeltaSnapshot: input.taskAnchor.instructionDeltaSnapshot ?? {
         instructionDeltas: [],
@@ -1089,6 +1282,8 @@ const make = Effect.gen(function* () {
     const taskAnchor = yield* resolveTaskAnchor({
       thread,
       createdAt: input.createdAt,
+      refreshSnapshotBeforeTransition: true,
+      turnId: input.turnId,
     });
 
     const nextInterventionCount = state.interventionCount + 1;
@@ -1215,6 +1410,16 @@ const make = Effect.gen(function* () {
       interactionMode: thread.interactionMode,
       createdAt: input.createdAt,
     });
+    yield* appendContinuityPromptConsumedActivity({
+      threadId: input.threadId,
+      promptKind: "managed_continuation",
+      executionPolicy: "restart_in_place",
+      revision: taskAnchor.revision,
+      snapshotRevision:
+        taskAnchor.instructionDeltaSnapshot?.snapshotRevision ?? taskAnchor.revision,
+      createdAt: input.createdAt,
+      turnId: null,
+    });
 
     state.warningCount = 0;
     state.errorCount = 0;
@@ -1247,6 +1452,8 @@ const make = Effect.gen(function* () {
     const taskAnchor = yield* resolveTaskAnchor({
       thread,
       createdAt: input.createdAt,
+      refreshSnapshotBeforeTransition: true,
+      turnId: input.turnId,
     });
 
     const nextInterventionCount = state.interventionCount + 1;
@@ -1455,6 +1662,16 @@ const make = Effect.gen(function* () {
       interactionMode: successorThread.interactionMode,
       createdAt: input.createdAt,
     });
+    yield* appendContinuityPromptConsumedActivity({
+      threadId: successorThreadId,
+      promptKind: "successor_handoff",
+      executionPolicy: "spawn_successor_thread",
+      revision: taskAnchor.revision,
+      snapshotRevision:
+        taskAnchor.instructionDeltaSnapshot?.snapshotRevision ?? taskAnchor.revision,
+      createdAt: input.createdAt,
+      turnId: null,
+    });
 
     state.warningCount = 0;
     state.errorCount = 0;
@@ -1599,6 +1816,7 @@ const make = Effect.gen(function* () {
         (yield* resolveTaskAnchor({
           thread,
           createdAt: input.createdAt,
+          turnId: null,
         }));
 
       yield* appendSystemMessage({
@@ -1632,6 +1850,16 @@ const make = Effect.gen(function* () {
         runtimeMode: thread.runtimeMode,
         interactionMode: thread.interactionMode,
         createdAt: input.createdAt,
+      });
+      yield* appendContinuityPromptConsumedActivity({
+        threadId: input.threadId,
+        promptKind: "managed_continuation",
+        executionPolicy: managedState.executionPolicy,
+        revision: taskAnchor.revision,
+        snapshotRevision:
+          taskAnchor.instructionDeltaSnapshot?.snapshotRevision ?? taskAnchor.revision,
+        createdAt: input.createdAt,
+        turnId: null,
       });
 
       return "handled";
