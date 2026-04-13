@@ -26,6 +26,10 @@ Homer follows a strict recovery path:
 
 Result: fewer stuck/looping sessions and less drift between user intent and resumed work.
 
+Process overview:
+
+![Homer deterministic continuity process](./docs/homer-deterministic-process.svg)
+
 ## Handover, "Session Memory", and Checkpoints
 
 Homer does not rely on hidden model memory between sessions. Its continuity comes from persisted, deterministic artifacts:

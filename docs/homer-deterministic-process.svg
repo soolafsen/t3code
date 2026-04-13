@@ -1,0 +1,124 @@
+﻿<svg width="1600" height="980" viewBox="0 0 1600 980" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Homer deterministic continuity process</title>
+  <desc id="desc">Flow diagram showing how Homer preserves intent through task anchors, checkpoint signals, and deterministic restart or successor handoff policy.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#061226"/>
+      <stop offset="55%" stop-color="#0b2037"/>
+      <stop offset="100%" stop-color="#11111d"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#102743"/>
+      <stop offset="100%" stop-color="#0b1729"/>
+    </linearGradient>
+    <linearGradient id="ok" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2ec9a0"/>
+      <stop offset="100%" stop-color="#1f9f80"/>
+    </linearGradient>
+    <linearGradient id="warn" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f7b955"/>
+      <stop offset="100%" stop-color="#cc8a1f"/>
+    </linearGradient>
+    <linearGradient id="risk" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f27a8a"/>
+      <stop offset="100%" stop-color="#ca3e58"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="180%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-opacity="0.35" flood-color="#000"/>
+    </filter>
+    <marker id="arrowBlue" markerWidth="14" markerHeight="14" refX="11" refY="7" orient="auto">
+      <path d="M0,0 L14,7 L0,14 Z" fill="#76b3ff"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="14" markerHeight="14" refX="11" refY="7" orient="auto">
+      <path d="M0,0 L14,7 L0,14 Z" fill="#39d7b2"/>
+    </marker>
+    <marker id="arrowRose" markerWidth="14" markerHeight="14" refX="11" refY="7" orient="auto">
+      <path d="M0,0 L14,7 L0,14 Z" fill="#f27a8a"/>
+    </marker>
+    <style>
+      .title { font-family: "Segoe UI", "Inter", Arial, sans-serif; font-size: 44px; font-weight: 700; fill: #f4f8ff; }
+      .subtitle { font-family: "Segoe UI", "Inter", Arial, sans-serif; font-size: 23px; font-weight: 500; fill: #b7c9e5; }
+      .h { font-family: "Segoe UI", "Inter", Arial, sans-serif; font-size: 26px; font-weight: 700; fill: #f4f8ff; }
+      .b { font-family: "Segoe UI", "Inter", Arial, sans-serif; font-size: 20px; font-weight: 500; fill: #dbe8ff; }
+      .small { font-family: "Segoe UI", "Inter", Arial, sans-serif; font-size: 18px; font-weight: 500; fill: #c4d5ef; }
+      .chip { font-family: "Consolas", "JetBrains Mono", monospace; font-size: 16px; font-weight: 700; fill: #f4f8ff; }
+      .edge { stroke: #76b3ff; stroke-width: 4; fill: none; marker-end: url(#arrowBlue); }
+      .edge-ok { stroke: #39d7b2; stroke-width: 4; fill: none; marker-end: url(#arrowGreen); }
+      .edge-risk { stroke: #f27a8a; stroke-width: 4; fill: none; marker-end: url(#arrowRose); }
+      .box { fill: url(#panel); stroke: #22476f; stroke-width: 2; rx: 22; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1600" height="980" fill="url(#bg)"/>
+
+  <text x="70" y="82" class="title">Homer Deterministic Continuity Loop</text>
+  <text x="70" y="118" class="subtitle">Intent stays authoritative across restarts, handoffs, and long contexts.</text>
+
+  <rect class="box" filter="url(#shadow)" x="70" y="165" width="420" height="180"/>
+  <text x="95" y="212" class="h">1) Latest Real User Intent</text>
+  <text x="95" y="246" class="b">New instruction updates authority.</text>
+  <text x="95" y="278" class="b">Status/progress/continue nudges do not.</text>
+  <rect x="95" y="296" width="235" height="34" rx="10" fill="#17395d" stroke="#2f628f"/>
+  <text x="109" y="319" class="chip">authoritativeUserMessageId</text>
+
+  <rect class="box" filter="url(#shadow)" x="560" y="165" width="500" height="180"/>
+  <text x="585" y="212" class="h">2) Persisted Continuity Artifacts</text>
+  <text x="585" y="246" class="b">Task anchor + delta snapshot + managed state.</text>
+  <text x="585" y="278" class="small">objective, constraints, non-goals, revision, completion contract</text>
+  <rect x="585" y="295" width="188" height="34" rx="10" fill="#154767"/>
+  <text x="599" y="318" class="chip">homerTaskAnchor</text>
+  <rect x="786" y="295" width="220" height="34" rx="10" fill="#184f63"/>
+  <text x="799" y="318" class="chip">instructionDeltaSnapshot</text>
+
+  <rect class="box" filter="url(#shadow)" x="1130" y="165" width="400" height="180"/>
+  <text x="1155" y="212" class="h">3) Runtime + Checkpoint Signals</text>
+  <text x="1155" y="246" class="b">warnings, errors, compaction, timeout,</text>
+  <text x="1155" y="278" class="b">checkpoint status: ready/missing/error</text>
+  <rect x="1155" y="295" width="240" height="34" rx="10" fill="#18425d"/>
+  <text x="1170" y="318" class="chip">thread.turn-diff-completed</text>
+
+  <rect class="box" filter="url(#shadow)" x="435" y="430" width="720" height="210"/>
+  <text x="462" y="477" class="h">4) Deterministic Policy Gate</text>
+  <text x="462" y="511" class="b">No model guesswork. Explicit rules choose recovery path.</text>
+
+  <rect x="462" y="530" width="208" height="88" rx="16" fill="url(#ok)"/>
+  <text x="484" y="574" class="chip">restart_in_place</text>
+  <text x="477" y="598" class="small" fill="#062a22">fresh session same thread</text>
+
+  <rect x="693" y="530" width="208" height="88" rx="16" fill="url(#warn)"/>
+  <text x="704" y="574" class="chip">managed active</text>
+  <text x="711" y="598" class="small" fill="#3d2805">short follow-ups continue</text>
+
+  <rect x="924" y="530" width="208" height="88" rx="16" fill="url(#risk)"/>
+  <text x="935" y="574" class="chip">spawn_successor</text>
+  <text x="955" y="598" class="small" fill="#3e0b19">on repeated failures</text>
+
+  <rect class="box" filter="url(#shadow)" x="70" y="720" width="700" height="195"/>
+  <text x="95" y="767" class="h">5) Handoff Package (if restart/successor)</text>
+  <text x="95" y="801" class="b">`T3HomerHandoffPayload` carries objective, done/not-done,</text>
+  <text x="95" y="833" class="b">next action, relevant files, checkpointRef.</text>
+  <text x="95" y="865" class="small">Preflight guard in prompt: branch expectation + checkpoint status.</text>
+
+  <rect class="box" filter="url(#shadow)" x="845" y="720" width="685" height="195"/>
+  <text x="870" y="767" class="h">6) Audit Trail + Safety Outcome</text>
+  <text x="870" y="801" class="b">Thread activities record supervision, handoff, escalation.</text>
+  <text x="870" y="833" class="b">Successor linkage and escalation evidence remain visible.</text>
+  <text x="870" y="865" class="small">Result: less context rot and less intent drift over long runs.</text>
+
+  <path class="edge" d="M490 255 L560 255"/>
+  <path class="edge" d="M1060 255 L1130 255"/>
+  <path class="edge" d="M1330 345 C1330 410, 1090 410, 1090 430"/>
+  <path class="edge" d="M700 345 C700 385, 700 395, 700 430"/>
+  <path class="edge-ok" d="M566 618 C485 670, 420 695, 350 720"/>
+  <path class="edge-risk" d="M1028 618 C1075 670, 1160 695, 1240 720"/>
+  <path class="edge" d="M770 818 L845 818"/>
+  <path class="edge" d="M1210 720 C1210 690, 965 675, 820 640"/>
+
+  <rect x="1295" y="70" width="235" height="88" rx="14" fill="#101f35" stroke="#27466b"/>
+  <text x="1313" y="102" class="chip">Legend</text>
+  <circle cx="1320" cy="122" r="6" fill="#39d7b2"/>
+  <text x="1336" y="128" class="small">normal continuation</text>
+  <circle cx="1320" cy="145" r="6" fill="#f27a8a"/>
+  <text x="1336" y="151" class="small">escalation path</text>
+</svg>
