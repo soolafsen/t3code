@@ -92,6 +92,7 @@ Observability guide: [docs/observability.md](./docs/observability.md)
 Local fork/sync guide: [docs/local-customization.md](./docs/local-customization.md)
 Fork feature notes: [docs/fork-features.md](./docs/fork-features.md)
 T3 Homer status: [docs/t3homer-status.md](./docs/t3homer-status.md)
+Checkpoint-anchored continuation plan: [docs/t3homer-checkpoint-anchored-continuation.md](./docs/t3homer-checkpoint-anchored-continuation.md)
 T3 Homer MVP: [docs/t3homer-mvp.md](./docs/t3homer-mvp.md)
 
 ## If you REALLY want to contribute still.... read this first
