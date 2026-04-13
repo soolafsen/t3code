@@ -1,4 +1,4 @@
-# T3 Homer
+# T3 Homer (WIP)
 
 T3 Homer is a modified **T3 Code** fork focused on reliable long-running agent sessions.
 
